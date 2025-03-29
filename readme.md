@@ -1,6 +1,10 @@
 # PROBLEMS:
+	
+	How to encode and set encoding in printer?
 
-	If USB port changes, it seems to update the output port.
-	FIX: find a way to detect automatically.
+	
 
+
+# DOCS:
+	https://python-escpos.readthedocs.io/en/latest/user/methods.html#escpos-class
 
