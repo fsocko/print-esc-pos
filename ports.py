@@ -20,9 +20,14 @@ def find_usb_printer():
                 # Get device class (07h = printers, 03h = HID, etc.)
                 device_class = device.bDeviceClass
                 
+                # Get bus and device address (port)
+                bus_number = device.bus
+                device_address = device.address
+                
                 # Check if it's likely a printer (class 07 or known vendor/product ID)
                 if device_class == 7 or usb.util.get_string(device, 256, device.iProduct):
                     print(f"Printer found: Vendor ID = {hex(vendor_id)}, Product ID = {hex(product_id)}")
+                    print(f"  Connected at Bus {bus_number}, Device {device_address}")
                     found_printer = True
             except usb.core.USBError as e:
                 print(f"USB error: {e}")
