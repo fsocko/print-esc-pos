@@ -9,7 +9,6 @@ import usb.backend.libusb1
 
 PRINTER_VENDOR_ID = 0x0416
 PRINTER_PRODUCT_ID = 0x5011
-PRINTER_WIDTH_PX = 384
 
 def find_printer():
     backend = usb.backend.libusb1.get_backend()
@@ -64,3 +63,15 @@ def find_printer():
 
     print("Error: No USB printers found.")
     return None
+  
+  
+def initialize_printer(printer):
+  """
+  Initializes the printer by resetting all settings to their defaults.
+  :param printer: The printer object to initialize.
+  """
+  try:
+      printer._raw(b'\x1b\x40')
+      print("Printer initialized successfully.")
+  except Exception as e:
+      print(f"Failed to initialize printer: {e}")

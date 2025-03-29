@@ -2,19 +2,25 @@ from PIL import Image
 import sys
 import argparse
 import printer_utils
+import textwrap
+
+PRINTER_CHAR_WIDTH  = 48
+PRINTER_WIDTH_PX    = 384
 
 
 def print_text(printer, cut):
-    """Prints text from stdin."""
+    """Prints text from stdin with automatic line wrapping."""
     try:
         text = sys.stdin.read().strip()
         if text:
-            printer.text(text + "\n")
+            wrapped_text = textwrap.fill(text, width=PRINTER_CHAR_WIDTH)
+            printer.text(wrapped_text + "\n")
         if cut:
             printer.cut()
         print("Text print successful.")
     except Exception as e:
         print(f"Failed to print text: {e}")
+        
 
 def print_image(printer, image_path, cut, scale_width_percentage=None, align_param="left"):
     try:
@@ -28,13 +34,9 @@ def print_image(printer, image_path, cut, scale_width_percentage=None, align_par
             
             # Calculate the target width based on the percentage
             target_width = int((scale_width_percentage / 100) * PRINTER_WIDTH_PX)
-            img_width, img_height = img.size
-
-            # Calculate the target height to maintain the aspect ratio
-            target_height = int(img_height * (target_width / img_width))
 
             # Resize the image
-            img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+            img = img.resize((target_width, None), Image.Resampling.LANCZOS)
 
         printer.set(align=align_param)
         printer.image(img)
@@ -85,6 +87,7 @@ if __name__ == "__main__":
         args.align = "right"
         
     printer = printer_utils.find_printer()
+    printer_utils.initialize_printer(printer)
     
     if printer:
         if args.raw:
