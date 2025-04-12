@@ -4,7 +4,7 @@ from escpos.printer import Usb
 PRINTER_VENDOR_ID = 0x0416  # Replace with your printer's vendor ID
 PRINTER_PRODUCT_ID = 0x5011  # Replace with your printer's product ID
 
-col_width = 15
+col_width = 10
 
 def rpad(s):
     return f"{s:-<{col_width}}"
@@ -23,12 +23,12 @@ try:
     printer.set(invert=False)
     printer.set(underline=1)
     printer.set(bold=1)
-    printer.text(header)
+    printer.text("\n" + header + "\n")
     printer.set(underline=0)
     printer.set(bold=0)
 
     for i in range(0, 24):
-        
+        printer.set(invert=False)
         if((i) % 24 < 9 or (i) % 24 > 22):
             printer.set(invert=True)
         time_str_lis = rpad("{:02d}:00".format(i % 24))
@@ -50,8 +50,8 @@ try:
     printer.set(invert=False)
     printer.text(empty_separator)
     
-    lis_dst = "LIS: DST STARTS on the last Sunday of March .\n DST ENDS on the last Sunday of October."
-    us_dst = "US: DST STARTS on the second Sunday of March.\nUS DST Ends Daylight Saving Time on the first Sunday of November."
+    lis_dst = "LIS: DST STARTS (+1) on the last Sunday of March .\n DST ENDS (-1) on the last Sunday of October."
+    us_dst =  " US: DST STARTS (+1) on the second Sunday of March.\nUS DST ENDS (-1) on the first Sunday of November."
     
     printer.text(lis_dst)
     printer.text(empty_separator)
