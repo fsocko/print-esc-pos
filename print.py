@@ -5,7 +5,7 @@ import printer_utils
 import textwrap
 
 PRINTER_CHAR_WIDTH  = 48
-PRINTER_WIDTH_PX    = 384
+PRINTER_WIDTH_PX    = 640
 
 
 def print_text(printer, cut):
@@ -27,16 +27,17 @@ def print_image(printer, image_path, cut, scale_width_percentage=None, align_par
         # Open the image
         img = Image.open(image_path)
         
-               # Scale the image if a percentage is provided
+        # Scale the image if a percentage is provided
         if scale_width_percentage:
             if scale_width_percentage <= 0 or scale_width_percentage > 100:
                 raise ValueError("Scale percentage must be between 1 and 100.")
             
-            # Calculate the target width based on the percentage
+            orig_width, orig_height = img.size
             target_width = int((scale_width_percentage / 100) * PRINTER_WIDTH_PX)
-
-            # Resize the image
-            img = img.resize((target_width, None), Image.Resampling.LANCZOS)
+            target_height = int((target_width / orig_width) * orig_height)
+            
+            # Resize the image with aspect ratio preserved
+            img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
         printer.set(align=align_param)
         printer.image(img)
