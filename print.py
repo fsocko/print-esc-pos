@@ -1,98 +1,101 @@
 import sys
-import os
-import subprocess
+import argparse
 import print_text
 import print_image
 import print_raw
+import printer_utils
 
 def is_image_file(path: str) -> bool:
-    ext = os.path.splitext(path)[1].lower()
-    return ext in (".png", ".jpg", ".jpeg", ".bmp", ".gif")
+    ext = path.lower().rsplit(".", 1)[-1]
+    return ext in ("png", "jpg", "jpeg", "bmp", "gif")
 
-def detect_input_type(argv):
-    """Detects whether input is text, image, or raw binary."""
-    if len(argv) >= 1 and os.path.exists(argv[0]):
-        if is_image_file(argv[0]):
-            return "image", argv[0]
-        else:
-            with open(argv[0], "rb") as f:
-                data = f.read(512)
-                try:
-                    data.decode("utf-8")
-                    return "text_file", argv[0]
-                except UnicodeDecodeError:
-                    return "raw_file", argv[0]
-
+def detect_input_type(file_path=None):
+    if file_path:
+        if is_image_file(file_path):
+            return "image"
+        try:
+            with open(file_path, "rb") as f:
+                f.read(512).decode("utf-8")
+            return "text"
+        except Exception:
+            return "raw"
+    # stdin autodetect
     if not sys.stdin.isatty():
         peek = sys.stdin.buffer.peek(512)
         try:
             peek.decode("utf-8")
-            return "text_stdin", None
-        except UnicodeDecodeError:
-            return "raw_stdin", None
+            return "text"
+        except Exception:
+            return "raw"
+    return None
 
-    return "none", None
-
-
-def show_help():
-    """Print top-level help and subcommand helps (via argparse)."""
-    print("Usage:")
-    print("  print.py [options] [file]\n")
-    print("Automatically detects input type (text/image/raw).")
-    print("Examples:")
-    print("  echo 'Hello world' | python print.py")
-    print("  python print.py receipt.txt")
-    print("  python print.py logo.png")
-    print("  cat data.escpos | python print.py\n")
-
-    print("Global options:")
-    print("  -h, --help        Show this help message")
-    print("  --mode {text,image,raw}  Force mode detection\n")
-    
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-
-    def run_help(module, name=None):
-        if name is None:
-            name = module.__name__
-        print(f"\n\n[ {name} options ]\n")
-        try:
-            module.main(["-h"])
-        except SystemExit:
-            pass  # ignore sys.exit() from argparse
-
-    run_help(print_text, "print_text")
-    run_help(print_image, "print_image")
-    run_help(print_raw, "print_raw")
-    
+def show_all_help():
+    print("\n=== print_text options ===")
+    try:
+        print_text.main(["-h"])
+    except SystemExit:
+        pass
+    print("\n=== print_image options ===")
+    try:
+        print_image.main(["-h"])
+    except SystemExit:
+        pass
+    print("\n=== print_raw options ===")
+    try:
+        print_raw.main(["-h"])
+    except SystemExit:
+        pass
 
 def main():
-    argv = sys.argv[1:]
+    parser = argparse.ArgumentParser(
+        description="Print text, images, or raw ESC/POS data."
+    )
+    parser.add_argument("file", nargs="?", help="File to print")
+    parser.add_argument("--mode", choices=["text","image","raw"],
+                        help="Force input mode instead of autodetect")
+    parser.add_argument("-c", "--cut", action="store_true",
+                        help="Cut paper after printing")
+    parser.add_argument("--help-all", action="store_true",
+                        help="Show full help including all submodules")
 
-    if "-h" in argv or "--help" in argv:
-        show_help()
+    args, extras = parser.parse_known_args()
+
+    if args.help_all:
+        show_all_help()
         return
-
-    mode = None
-    if "--mode" in argv:
-        i = argv.index("--mode")
-        if i + 1 < len(argv):
-            mode = argv[i + 1]
-            argv = argv[:i] + argv[i + 2:]
+    
+    # Determine mode
+    mode = args.mode or detect_input_type(args.file)
 
     if not mode:
-        mode, target = detect_input_type(argv)
-    else:
-        target = argv[0] if argv else None
+        if args.cut:
+            try:
+                printer_utils.cut_paper()
+            except Exception as e:
+                print(f"Failed to cut paper: {e}")
+            return
+        else:
+            parser.print_help()
+            print("\nUse --help-all to see full submodule help")
+            return
 
-    if mode in ("text_stdin", "text_file") or mode == "text":
-        print_text.main(argv)
-    elif mode in ("image",):
-        print_image.main(argv)
-    elif mode in ("raw_stdin", "raw_file") or mode == "raw":
-        print_raw.main(argv)
-    else:
-        show_help()
+    submodule_argv = extras
+    if args.file:
+        submodule_argv = [args.file] + extras
 
-
+    if mode == "text":
+        print_text.main(submodule_argv)
+    elif mode == "image":
+        print_image.main(submodule_argv)
+    elif mode == "raw":
+        print_raw.main(submodule_argv)
+    
+    if args.cut:
+        try:
+            printer_utils.cut_paper()
+        except Exception as e:
+            print(f"Failed to cut paper: {e}")
+            
+        
 if __name__ == "__main__":
     main()

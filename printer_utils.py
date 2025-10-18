@@ -77,3 +77,13 @@ def initialize_printer(printer, verbose=True):
     except Exception as e:
         if verbose:
             print(f"Failed to initialize printer: {e}")
+
+def cut_paper():
+    try:
+        printer = find_printer()
+        initialize_printer(printer)
+        printer.cut()
+        printer.close()
+        print("Paper cut completed.")
+    except Exception as e:
+        print(f"Failed to cut paper: {e}")
