@@ -29,10 +29,13 @@ def print_buffer(printer, lines):
 
 def print_text_simple(cut=False):
     printer = get_printer()
-    text = sys.stdin.read().strip()
-    if text:
-        wrapped = textwrap.fill(text, width=PRINTER_CHAR_WIDTH)
-        printer.text(wrapped + "\n")
+    for line in sys.stdin:
+        if len(line.rstrip()) > PRINTER_CHAR_WIDTH:
+            wrapped_lines = textwrap.wrap(line.rstrip(), width=PRINTER_CHAR_WIDTH)
+            for wl in wrapped_lines:
+                printer.text(wl + "\n")
+        else:
+            printer.text(line.rstrip() + "\n")
     if cut:
         printer.cut()
     printer.close()
@@ -72,12 +75,28 @@ def print_text_buffered(cut=False):
 
 def main(args=None):
     import argparse
+    import os
+
     parser = argparse.ArgumentParser(description="Print text to ESC/POS printer.")
-    parser.add_argument("-c", "--cut", action="store_true")
-    parser.add_argument("-s", "--stream", action="store_true")
+    parser.add_argument("file", nargs="?", help="File to print (defaults to stdin)")
+    parser.add_argument("-c", "--cut", action="store_true", help="Cut paper after printing")
+    parser.add_argument("-s", "--stream", action="store_true", help="Enable streaming mode")
     parsed = parser.parse_args(args)
 
-    if parsed.stream:
-        print_text_buffered(parsed.cut)
+    # Read from file if provided, otherwise stdin
+    if parsed.file:
+        if not os.path.exists(parsed.file):
+            print(f"Error: file not found: {parsed.file}", file=sys.stderr)
+            sys.exit(1)
+        with open(parsed.file, "r", encoding="utf-8", errors="replace") as f:
+            sys.stdin = f  # redirect file to stdin
+            if parsed.stream:
+                print_text_buffered(parsed.cut)
+            else:
+                print_text_simple(parsed.cut)
     else:
-        print_text_simple(parsed.cut)
+        # No file → read from stdin directly
+        if parsed.stream:
+            print_text_buffered(parsed.cut)
+        else:
+            print_text_simple(parsed.cut)
