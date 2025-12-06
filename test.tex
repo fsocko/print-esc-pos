@@ -1,0 +1,30 @@
+\documentclass[12pt]{article}
+\usepackage[paperwidth=80mm, paperheight=150mm, margin=2mm]{geometry}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{calc} % for width calculations
+\pagestyle{empty}
+
+% Adjustable image size
+\newcommand{\ImageWidth}{28mm}
+\newcommand{\ImageHeight}{28mm}
+
+\begin{document}
+
+\begin{tikzpicture}
+\node[draw, rectangle, line width=0.5pt, inner sep=2mm] (box) {
+    % Use top-aligned minipages
+    \begin{minipage}[t]{\ImageWidth} 
+        \includegraphics[width=\ImageWidth, height=\ImageHeight]{images/smile.png}
+    \end{minipage}%
+    \hspace{2mm}%
+    \begin{minipage}[t]{\dimexpr 80mm - 2mm - \ImageWidth - 4mm\relax} 
+        \raggedright
+        Line 1: Hello World! This is a long line that should wrap properly inside the column.\\[1mm]
+        Line 2: ESC/POS Test continues here\\[1mm]
+        Line 3: Thermal Printer example text
+    \end{minipage}
+};
+\end{tikzpicture}
+
+\end{document}

@@ -4,7 +4,10 @@
 fonts/
 images/
 documents/
+output/
 *.png
+*.pdf
+*.aux
 
 
 ### Python ###
