@@ -1,9 +1,13 @@
 # printer/print_text.py
 import sys
+import io
 import textwrap
+import ftfy
 import time
 import printer_utils
 from itertools import cycle
+
+sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
 
 PRINTER_CHAR_WIDTH = 48
 FLUSH_LINES = 20
@@ -23,19 +27,51 @@ def get_printer(stream_mode=False):
 
 def print_buffer(printer, lines):
     for line in lines:
+        
+        # --- sanitize UTF-8 text using ftfy ---
+        clean_line = ftfy.fix_text(line)
+        
         wrapped_lines = textwrap.wrap(line.strip(), width=PRINTER_CHAR_WIDTH)
         for wrapped in wrapped_lines:
             printer.text(wrapped + "\n")
 
 def print_text_simple(cut=False):
     printer = get_printer()
+
+    # ESC/POS codepage candidates
+    codepage_candidates = [
+        (16, "cp1252", "Western Europe + €"),
+        (2, "cp850", "Western Europe"),
+        (18, "cp852", "Polish / Central Europe"),
+        (5, "cp865", "Nordic"),
+        (17, "cp866", "Cyrillic / Russian")
+    ]
+
+    def find_compatible_codepage(text):
+        for n, codec, desc in codepage_candidates:
+            try:
+                text.encode(codec)
+                return n, codec, desc
+            except UnicodeEncodeError:
+                continue
+        return None, None, None
+
     for line in sys.stdin:
-        if len(line.rstrip()) > PRINTER_CHAR_WIDTH:
-            wrapped_lines = textwrap.wrap(line.rstrip(), width=PRINTER_CHAR_WIDTH)
-            for wl in wrapped_lines:
-                printer.text(wl + "\n")
-        else:
-            printer.text(line.rstrip() + "\n")
+        line = line.rstrip()
+        wrapped_lines = textwrap.wrap(line, width=PRINTER_CHAR_WIDTH) if len(line) > PRINTER_CHAR_WIDTH else [line]
+
+        for wl in wrapped_lines:
+            n, codec, desc = find_compatible_codepage(wl)
+            if n is None:
+                # fallback: replace unprintable characters
+                encoded_line = wl.encode("ascii", errors="replace")
+                printer.text(encoded_line.decode("ascii") + "\n")
+            else:
+                # switch ESC/POS code page per line
+                printer._raw(b"\x1B\x74" + bytes([n]))
+                encoded_line = wl.encode(codec)
+                printer._raw(encoded_line + b"\n")
+
     if cut:
         printer.cut()
     printer.close()
@@ -72,6 +108,7 @@ def print_text_buffered(cut=False):
     if cut:
         printer_container[0].cut()
     printer_container[0].close()
+
 
 def main(args=None):
     import argparse

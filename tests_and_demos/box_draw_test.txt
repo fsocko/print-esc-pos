@@ -1,0 +1,19 @@
+┌───────────────┐
+│   BOX DRAWING │
+├───────────────┤
+│ ┌─┐ ┌─┐ ┌─┐ │
+│ │ │ │ │ │ │ │
+│ └─┘ └─┘ └─┘ │
+├───────────────┤
+│ Arrows → ↑ ↓ ← │
+├───────────────┤
+│ Symbols: ☺ ☻ ♥ ♦ ♣ ♠ │
+└───────────────┘
+Notes:
+Corners / lines: ┌ ┐ └ ┘ ─ │ ├ ┤ ┬ ┴ ┼
+
+Arrows: → ↑ ↓ ←
+
+Simple symbols in CP437: ☺ ☻ ♥ ♦ ♣ ♠
+
+Works best in CP437 or CP850 code pages on ESC/POS printers.
