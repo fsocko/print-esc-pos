@@ -44,7 +44,8 @@ def print_text_simple(cut=False):
         (2, "cp850", "Western Europe"),
         (18, "cp852", "Polish / Central Europe"),
         (5, "cp865", "Nordic"),
-        (17, "cp866", "Cyrillic / Russian")
+        (17, "cp866", "Cyrillic / Russian"),
+        (0, "cp437", "Box-drawing / Graphics"),
     ]
 
     def find_compatible_codepage(text):
