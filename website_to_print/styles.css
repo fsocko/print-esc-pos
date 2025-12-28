@@ -1,0 +1,78 @@
+body {
+    background: #bfbfbf;
+    font-family: Arial, Helvetica, sans-serif;
+    margin: 0;
+    padding: 20px;
+}
+
+.controls {
+    text-align: center;
+    margin-bottom: 12px;
+}
+
+button {
+    padding: 6px 10px;
+    margin-right: 6px;
+    background: #e0e0e0;
+    border: 1px solid #666;
+    cursor: pointer;
+}
+
+label {
+    margin-left: 10px;
+    font-size: 13px;
+}
+
+.cut-control select,
+.cut-control input {
+    margin-left: 4px;
+    padding: 2px 4px;
+}
+
+.cut-control .unit {
+    margin-left: 2px;
+    font-size: 13px;
+}
+
+.page-wrapper {
+    width: 80mm;
+    background: #f2f2f2;
+    margin: auto;
+    padding: 4mm;
+    box-shadow: 0 0 6px rgba(0,0,0,0.3);
+}
+
+.content {
+    position: relative;
+}
+
+.block {
+    padding: 4mm 2mm;
+    border-bottom: 1px dotted #999;
+    font-size: 12px;
+    font-family: monospace;
+    line-height: 1.25;
+    word-wrap: break-word;
+}
+
+/* ===== CUT LINE ===== */
+.generated-cut-line {
+    position: absolute;
+    top: 0;
+    width: 120%;  /* extend outside content */
+    left: -10%;
+    border-top: 1px dashed #999; /* default style for line */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    pointer-events: none;
+}
+
+.generated-cut-line::before,
+.generated-cut-line::after {
+    content: "CUT";
+    color: red; /* labels are red in browser */
+    font-size: 10px;
+    background: #f2f2f2;
+    padding: 0 2px;
+}
