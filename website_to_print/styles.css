@@ -58,21 +58,35 @@ label {
 /* ===== CUT LINE ===== */
 .generated-cut-line {
     position: absolute;
-    top: 0;
-    width: 120%;  /* extend outside content */
+    width: 120%;
     left: -10%;
-    border-top: 1px dashed #999; /* default style for line */
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    height: 0;
+    border-top: 1px dashed #999;
     pointer-events: none;
 }
 
-.generated-cut-line::before,
-.generated-cut-line::after {
+/* LEFT label */
+.generated-cut-line::before {
     content: "CUT";
-    color: red; /* labels are red in browser */
+    position: absolute;
+    top: -6px;              /* centers text on the dashed line */
+    left: 6px;
+    color: red;
     font-size: 10px;
     background: #f2f2f2;
-    padding: 0 2px;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+/* RIGHT label */
+.generated-cut-line::after {
+    content: "CUT";
+    position: absolute;
+    top: -6px;              /* same vertical alignment */
+    right: 6px;
+    color: red;
+    font-size: 10px;
+    background: #f2f2f2;
+    padding: 0 4px;
+    line-height: 1;
 }

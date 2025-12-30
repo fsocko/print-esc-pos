@@ -2,9 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>80mm Thermal Printer Layout</title>
+    <title>80mm Thermal Printer Layout</title> 
+    <!-- ^^ THIS IS THE ZIP FILE NAME NOW -->
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.0/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
     <link rel="stylesheet" href="styles.css">
 </head>
 
@@ -25,7 +28,7 @@
            onchange="loadContentFile(this)">
 
     <label>
-        <input type="checkbox" id="splitToggle">
+        <input type="checkbox" id="splitToggle" onchange="updateCutLines()">
         Image segment
     </label>
 
@@ -53,6 +56,8 @@
 <div class="page-wrapper">
     <div class="content" id="content">
 
+        <title>80mm Thermal Printer Test</title>
+        
         <div class="block">
             <strong>THERMAL PRINTER TEST</strong><br>
             Width: 80mm
@@ -73,19 +78,6 @@
 
         <div class="block">
             TOTAL................ 4.20€
-        </div>
-
-        <div class="block">
-            Repeat content to make page taller for demo.<br>
-            Line 2.<br>
-            Line 3.<br>
-            Line 4.<br>
-            Line 5.<br>
-            Line 6.<br>
-            Line 7.<br>
-            Line 8.<br>
-            Line 9.<br>
-            Line 10.
         </div>
 
     </div>
