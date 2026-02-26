@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>80mm Thermal Printer Layout</title> 
+    <!-- ^^ THIS IS THE ZIP FILE NAME NOW -->
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.0/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<div class="controls">
+
+    <button onclick="exportPNG()">Export PNG</button>
+
+    <button onclick="document.getElementById('contentFile').click()">
+        Load Content HTML
+    </button>
+
+    <input type="file"
+           id="contentFile"
+           accept=".html"
+           style="display:none"
+           onchange="loadContentFile(this)">
+
+    <label>
+        <input type="checkbox" id="splitToggle" onchange="updateCutLines()">
+        Image segment
+    </label>
+
+    <label class="cut-control">
+        Cut interval:
+        <select id="cutPreset" onchange="applyPreset()">
+            <option value="">Custom</option>
+            <option value="297">A4</option>
+            <option value="210">A5</option>
+            <option value="148">A6</option>
+        </select>
+
+        <input type="number"
+               id="cutLengthMm"
+               min="1"
+               step="1"
+               placeholder="mm"
+               oninput="updateCutLines()">
+
+        <span class="unit">mm</span>
+    </label>
+
+<br><br>
+
+<div class="page-wrapper paste-html">
+
+<textarea id="html-input"
+          placeholder="Paste HTML content.">              
+</textarea>
+
+<br>
+
+<button id="html-input-button" onclick="loadFromTextarea()">
+    Load Pasted HTML
+</button>
+
+</div>
+
+
+<div class="page-wrapper">
+    <div class="content" id="content">
+
+        <title>80mm Thermal Printer Test</title>
+        
+        <div class="block">
+            <strong>THERMAL PRINTER TEST</strong><br>
+            Width: 80mm
+        </div>
+
+        <div class="block">
+            ThisIsAnExtremelyLongUnbrokenLineDesignedToTestWrappingBehaviorOnAn80mmThermalPrinterAndItShouldWrapCorrectly
+        </div>
+
+        <div class="block">
+            Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+        </div>
+
+        <div class="block">
+            • Espresso Coffee — 1.80€<br>
+            • Cappuccino Extra Foam — 2.40€
+        </div>
+
+        <div class="block">
+            TOTAL................ 4.20€
+        </div>
+
+    </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
