@@ -1,3 +1,5 @@
+#!/c/Users/fsock/AppData/Local/Programs/Python/Python310/python
+
 import sys
 import argparse
 import print_text

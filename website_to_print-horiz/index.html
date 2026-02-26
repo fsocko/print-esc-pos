@@ -2,8 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>80mm Thermal Printer Layout</title> 
-    <!-- ^^ THIS IS THE ZIP FILE NAME NOW -->
+    <title>80mm Tape – Stacked Strip Preview</title>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.0/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -15,7 +14,7 @@
 
 <div class="controls">
 
-    <button onclick="exportPNG()">Export PNG</button>
+    <button onclick="exportPNG()">Export segmented ZIP</button>
 
     <button onclick="document.getElementById('contentFile').click()">
         Load Content HTML
@@ -28,8 +27,8 @@
            onchange="loadContentFile(this)">
 
     <label>
-        <input type="checkbox" id="splitToggle" onchange="updateCutLines()">
-        Image segment
+        <input type="checkbox" id="splitToggle" checked onchange="updateCutLines()">
+        Segmented
     </label>
 
     <label class="cut-control">
@@ -45,57 +44,31 @@
                id="cutLengthMm"
                min="1"
                step="1"
-               placeholder="mm"
+               value="120"
                oninput="updateCutLines()">
 
         <span class="unit">mm</span>
     </label>
 
-<br><br>
-
-<div class="page-wrapper paste-html">
-
-<textarea id="html-input"
-          placeholder="Paste HTML content.">              
-</textarea>
-
-<br>
-
-<button id="html-input-button" onclick="loadFromTextarea()">
-    Load Pasted HTML
-</button>
-
 </div>
-
 
 <div class="page-wrapper">
     <div class="content" id="content">
 
-        <title>80mm Thermal Printer Test</title>
-        
         <div class="block">
-            <strong>THERMAL PRINTER TEST</strong><br>
-            Width: 80mm
-        </div>
-
-        <div class="block">
-            ThisIsAnExtremelyLongUnbrokenLineDesignedToTestWrappingBehaviorOnAn80mmThermalPrinterAndItShouldWrapCorrectly
-        </div>
-
-        <div class="block">
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-        </div>
-
-        <div class="block">
-            • Espresso Coffee — 1.80€<br>
-            • Cappuccino Extra Foam — 2.40€
-        </div>
-
-        <div class="block">
-            TOTAL................ 4.20€
+            <strong>DEFAULT CONTENT</strong><br>
+            Load the test page to see the world map.
         </div>
 
     </div>
+</div>
+
+<h3 style="text-align:center;margin-top:20px;">
+    Stacked preview (how printed strips assemble)
+</h3>
+
+<div class="stack-preview-wrapper">
+    <div id="stackPreview" class="stack-preview"></div>
 </div>
 
 <script src="script.js"></script>

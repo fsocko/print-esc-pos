@@ -1,8 +1,8 @@
 // =======================
 // GLOBAL STATE
 // =======================
-let contentFileName = 'segment';   // fallback name
-let contentTitle = '';             // extracted <title> if present
+let contentFileName = 'segment';
+let contentTitle = '';
 
 // =======================
 // LOAD CONTENT HTML
@@ -18,7 +18,6 @@ function loadContentFile(input) {
     reader.onload = e => {
         const html = e.target.result;
 
-        // Extract <title> if present
         const match = html.match(/<title>(.*?)<\/title>/i);
         if (match && match[1]) {
             contentTitle = sanitizeName(match[1]);
@@ -31,97 +30,96 @@ function loadContentFile(input) {
 }
 
 // =======================
-// LOAD HTML FROM TEXTAREA
-// =======================
-function loadFromTextarea() {
-    const html = document.getElementById('html-input').value.trim();
-    if (!html) return;
-
-    contentFileName = 'pasted';
-    contentTitle = '';
-
-    // Extract <title> if present
-    const match = html.match(/<title>(.*?)<\/title>/i);
-    if (match && match[1]) {
-        contentTitle = sanitizeName(match[1]);
-    }
-
-    document.getElementById('content').innerHTML = html;
-    updateCutLines();
-}
-
-// =======================
 // PRESET HANDLING
 // =======================
 function applyPreset() {
     const preset = document.getElementById('cutPreset').value;
-    const mmInput = document.getElementById('cutLengthMm');
-
     if (preset) {
-        mmInput.value = preset;
+        document.getElementById('cutLengthMm').value = preset;
     }
-
     updateCutLines();
 }
 
 // =======================
-// CUT LINE HANDLING
+// CUT LINES
 // =======================
 function updateCutLines() {
     const content = document.getElementById('content');
     const mm = parseFloat(document.getElementById('cutLengthMm').value);
     const segmented = document.getElementById('splitToggle').checked;
 
-    // Remove existing lines
     content.querySelectorAll('.generated-cut-line').forEach(el => el.remove());
 
-    if (!mm || mm <= 0) return;
+    if (!mm || mm <= 0) {
+        updateStackPreview();
+        return;
+    }
 
     const pxPerMm = 96 / 25.4;
     const intervalPx = mm * pxPerMm;
-    const contentHeight = content.offsetHeight;
+    const height = content.offsetHeight;
 
-    for (let topPx = intervalPx; topPx < contentHeight; topPx += intervalPx) {
+    for (let y = intervalPx; y < height; y += intervalPx) {
         const line = document.createElement('div');
         line.className = 'generated-cut-line';
-        line.style.top = `${topPx}px`;
-
-        // IMPORTANT:
-        // segmentation ON → hide visually, but KEEP layout
-        if (segmented) {
-            line.style.visibility = 'hidden';
-        }
-
+        line.style.top = `${y}px`;
+        if (segmented) line.style.visibility = 'hidden';
         content.appendChild(line);
+    }
+
+    updateStackPreview();
+}
+
+// =======================
+// STACKED PREVIEW
+// =======================
+async function updateStackPreview() {
+    const content = document.getElementById('content');
+    const preview = document.getElementById('stackPreview');
+
+    preview.innerHTML = '';
+
+    const cutLines = Array.from(
+        content.querySelectorAll('.generated-cut-line')
+    );
+
+    const cutPositions = cutLines
+        .map(el => el.offsetTop)
+        .sort((a, b) => a - b);
+
+    const segments = [0, ...cutPositions, content.offsetHeight];
+
+    for (let i = 0; i < segments.length - 1; i++) {
+        const yStart = segments[i];
+        const yEnd = segments[i + 1];
+        const height = yEnd - yStart;
+        if (height <= 0) continue;
+
+        const canvas = await html2canvas(content, {
+            scale: 1,
+            y: yStart,
+            height,
+            backgroundColor: '#fff'
+        });
+
+        const img = document.createElement('img');
+        img.src = canvas.toDataURL('image/png');
+        img.className = 'stack-strip';
+
+        preview.appendChild(img);
     }
 }
 
 // =======================
-// EXPORT PNG / ZIP
+// EXPORT (SEGMENTED ONLY)
 // =======================
 async function exportPNG() {
     const content = document.getElementById('content');
-    const segmented = document.getElementById('splitToggle').checked;
-    const cutLines = Array.from(content.querySelectorAll('.generated-cut-line'));
 
-    // Resolve base name
-    const baseName =
-        contentTitle ||
-        contentFileName ||
-        'segment';
+    const cutLines = Array.from(
+        content.querySelectorAll('.generated-cut-line')
+    );
 
-    // =======================
-    // SINGLE IMAGE EXPORT
-    // =======================
-    if (!segmented) {
-        const canvas = await html2canvas(content, { scale: 2 });
-        downloadCanvas(canvas, `${baseName}.png`);
-        return;
-    }
-
-    // =======================
-    // SEGMENTED EXPORT
-    // =======================
     const cutPositions = cutLines
         .map(el => el.offsetTop)
         .sort((a, b) => a - b);
@@ -129,25 +127,24 @@ async function exportPNG() {
     const segments = [0, ...cutPositions, content.offsetHeight];
     const zip = new JSZip();
 
+    const baseName = contentTitle || contentFileName || 'segment';
+
     for (let i = 0; i < segments.length - 1; i++) {
         const yStart = segments[i];
         const yEnd = segments[i + 1];
         const height = yEnd - yStart;
-
-        // Safety guard (should not trigger now)
         if (height <= 0) continue;
 
         const canvas = await html2canvas(content, {
             scale: 2,
             y: yStart,
-            height
+            height,
+            backgroundColor: '#fff'
         });
 
         const index = String(i + 1).padStart(3, '0');
-        const filename = `${index}_segment.png`;
-
         zip.file(
-            filename,
+            `${index}_strip.png`,
             canvas.toDataURL('image/png').split(',')[1],
             { base64: true }
         );
@@ -163,13 +160,6 @@ async function exportPNG() {
 // =======================
 // HELPERS
 // =======================
-function downloadCanvas(canvas, filename) {
-    const link = document.createElement('a');
-    link.download = filename;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-}
-
 function sanitizeName(name) {
     return name
         .trim()

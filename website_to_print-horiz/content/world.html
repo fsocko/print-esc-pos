@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Embedded World Map – Horizontal Tape Test</title>
+</head>
+<body>
+
+<div class="block">
+    <strong>EMBEDDED IMAGE TEST</strong><br>
+    Inline SVG world map (offline-safe)
+</div>
+
+<div class="block">
+    This content file contains a fully embedded image.
+    It should render correctly even when the app is opened
+    directly from disk and segmented horizontally.
+</div>
+
+<div class="block">
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 2000 1000"
+        style="height: 100%; width: auto; display: block;">
+
+        <!-- Background -->
+        <rect x="0" y="0" width="2000" height="1000" fill="#f0f0f0"/>
+
+        <!-- Americas -->
+        <path
+            d="M180 200
+               L420 150
+               L520 260
+               L480 420
+               L300 520
+               L220 430
+               Z"
+            fill="#999"/>
+
+        <!-- Europe / Africa -->
+        <path
+            d="M750 220
+               L980 200
+               L1100 260
+               L1050 360
+               L900 380
+               L820 300
+               Z"
+            fill="#aaa"/>
+
+        <path
+            d="M900 380
+               L1100 400
+               L1150 620
+               L980 720
+               L880 600
+               Z"
+            fill="#888"/>
+
+        <!-- Asia -->
+        <path
+            d="M1200 260
+               L1550 240
+               L1750 340
+               L1650 480
+               L1350 460
+               L1200 360
+               Z"
+            fill="#999"/>
+
+        <!-- Australia -->
+        <path
+            d="M1500 620
+               L1680 650
+               L1650 760
+               L1480 740
+               Z"
+            fill="#aaa"/>
+
+        <!-- Caption -->
+        <text
+            x="1000"
+            y="950"
+            text-anchor="middle"
+            font-size="40"
+            fill="#555">
+            Simplified Embedded World Map (SVG)
+        </text>
+    </svg>
+</div>
+
+<div class="block">
+    End of embedded image.
+</div>
+
+<div class="block">
+    Extra trailing content to ensure multiple horizontal
+    cut segments are produced during export.
+</div>
+
+</body>
+</html>

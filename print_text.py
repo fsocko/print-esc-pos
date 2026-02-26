@@ -57,6 +57,8 @@ def print_text_simple(cut=False):
                 continue
         return None, None, None
 
+    printer._raw(b"\n") # Prepend new line to solve first line borking.
+
     for line in sys.stdin:
         line = line.rstrip()
         wrapped_lines = textwrap.wrap(line, width=PRINTER_CHAR_WIDTH) if len(line) > PRINTER_CHAR_WIDTH else [line]
@@ -66,7 +68,7 @@ def print_text_simple(cut=False):
             if n is None:
                 # fallback: replace unprintable characters
                 encoded_line = wl.encode("ascii", errors="replace")
-                printer.text(encoded_line.decode("ascii") + "\n")
+                printer.text("\n" + encoded_line.decode("ascii"))
             else:
                 # switch ESC/POS code page per line
                 printer._raw(b"\x1B\x74" + bytes([n]))
