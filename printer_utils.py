@@ -1,6 +1,8 @@
 import usb.backend.libusb1
 import usb.core
 import usb.util
+import logging
+
 from escpos.printer import Usb
 
 
@@ -9,14 +11,29 @@ PRINTER_PRODUCT_ID = 0x5011
 
 _PRINTER = None
 
+logger = logger = logging.getLogger("uvicorn") 
+logger.setLevel(logging.INFO)
+
 
 class PrinterError(Exception):
     pass
 
 
 def _log(message, verbose):
-    if verbose:
-        print(message)
+  _log(message, verbose, level="info")
+        
+def _log(message, verbose, level="info"):
+    if not verbose:
+        return
+
+    if level == "info":
+        logger.info("prt - " + message)
+    elif level == "warning":
+        logger.warning("prt - " + message)
+    elif level == "error":
+        logger.error("prt - " + message)
+    else:
+        logger.info("prt - " + message)
 
 
 def find_printer(verbose=True, stream_mode=False, force_refresh=False):

@@ -9,6 +9,7 @@
 
 ## TODO:
 	### Horizontal image print - do a rot like in render font image
+	### Formatter should be able to directly print in localhost.
 
 
 # Server:
