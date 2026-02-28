@@ -66,7 +66,6 @@ def print_image(
     try:
         # Initialize printer (respecting stream mode parameter if you use that in printer_utils)
         printer = printer_utils.find_printer(verbose=not stream_mode)
-        printer_utils.initialize_printer(printer, verbose=not stream_mode)
 
         img = _open_image(image_input)
         orig_width, orig_height = img.size

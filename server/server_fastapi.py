@@ -36,7 +36,7 @@ if not API_TOKEN:
 app = FastAPI(title="Thermal Printer API")
 
 WEB_FOLDER = os.path.join(PROJECT_ROOT, "website_to_print")
-app.mount("/static", StaticFiles(directory=WEB_FOLDER, html=True), name="static")
+app.mount("/formatter", StaticFiles(directory=WEB_FOLDER, html=True), name="formatter")
 
 
 # -------------------------------------------------

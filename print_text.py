@@ -22,7 +22,6 @@ def spinner_print():
 
 def get_printer(stream_mode=False):
     printer = printer_utils.find_printer(verbose=not stream_mode)
-    printer_utils.initialize_printer(printer, verbose=not stream_mode)
     return printer
 
 def print_buffer(printer, lines):

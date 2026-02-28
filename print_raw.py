@@ -4,7 +4,6 @@ import printer_utils
 
 def print_raw(cut=False):
     printer = printer_utils.find_printer()
-    printer_utils.initialize_printer(printer)
     data = sys.stdin.buffer.read()
     if data:
         printer._raw(data)
