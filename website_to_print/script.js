@@ -184,8 +184,19 @@ function sanitizeName(name) {
 // =======================
 
 function isLocalhost() {
-    console.log("is localhost:", window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
-    return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+    const host = window.location.hostname;
+
+   // Accept localhost, 127.0.0.1, or private network IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    const isLocalOrLAN =
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "0.0.0.0"   ||
+        /^192\.168\.\d{1,3}\.\d{1,3}$/.test(host) ||
+        /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+        /^172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host);
+    console.log("is local?", isLocalOrLAN);
+    return isLocalOrLAN;
 }
 
 async function sendToPrinter() {
@@ -193,6 +204,7 @@ async function sendToPrinter() {
 
     const baseName = contentTitle || contentFileName || "segment";
 
+    await document.fonts.ready;
     const canvas = await html2canvas(content, { scale: 2 });
 
     // Convert to Base64 string
@@ -209,7 +221,7 @@ async function sendToPrinter() {
     };
 
     // Send to FastAPI
-    const response = await fetch("http://localhost:8069/api/print", {
+    const response = await fetch(`http://${window.location.hostname}:8069/api/print`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json"
@@ -239,7 +251,9 @@ async function sendToPrinter(apiKey) {
         options: { mode: "image", cut: true }
     };
 
-    const response = await fetch("http://localhost:8069/api/print", {
+    const url = `http://${window.location.hostname}:8069/api/print`;
+
+    const response = await fetch(url, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
