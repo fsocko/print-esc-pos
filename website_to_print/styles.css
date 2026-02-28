@@ -18,6 +18,19 @@ button {
     cursor: pointer;
 }
 
+.print-thermal-btn {
+    display: block;       
+    margin: 20px auto;    
+    padding: 10px 20px;   
+    font-size: 1rem;      
+    transition: background-color 0.2s;
+}
+
+.print-thermal-btn:hover {
+    background-color: #45a049;
+}
+
+
 label {
     margin-left: 10px;
     font-size: 13px;
@@ -108,6 +121,7 @@ label {
     padding: 0 4px;
     line-height: 1;
 }
+
 
 
 @media print {

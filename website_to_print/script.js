@@ -226,34 +226,6 @@ async function sendToPrinter() {
 }
 
 
-
-document.addEventListener("DOMContentLoaded", () => {
-    if (isLocalhost()) {
-        const btn = document.createElement('button');
-        btn.textContent = "Print to Thermal";
-        btn.id = "printButton";
-        btn.style.margin = "10px";
-
-        const container = document.getElementById('controls') || document.body;
-        container.appendChild(btn);
-
-        btn.addEventListener("click", async () => {
-            try {
-                // Prompt user for API key
-                const apiKey = prompt("Enter API Key for FastAPI:");
-                if (!apiKey) {
-                    alert("No API Key provided. Print cancelled.");
-                    return;
-                }
-
-                await sendToPrinter(apiKey);
-            } catch (e) {
-                alert("Print failed: " + e.message);
-            }
-        });
-    }
-});
-
 async function sendToPrinter(apiKey) {
     const content = document.getElementById('content');
     const baseName = contentTitle || contentFileName || "segment";
@@ -283,3 +255,32 @@ async function sendToPrinter(apiKey) {
 
     alert("Print request sent successfully!");
 }
+
+
+document.addEventListener("DOMContentLoaded", () => {
+    if (isLocalhost()) {
+        const btn = document.createElement('button');
+        btn.textContent = "Print to Thermal";
+        btn.id = "printButton";
+        btn.classList.add("button", "print-thermal-btn");
+
+
+        const container = document.getElementById('controls') || document.body;
+        container.appendChild(btn);
+
+        btn.addEventListener("click", async () => {
+            try {
+                // Prompt user for API key
+                const apiKey = prompt("Enter API Key for FastAPI:");
+                if (!apiKey) {
+                    alert("No API Key provided. Print cancelled.");
+                    return;
+                }
+
+                await sendToPrinter(apiKey);
+            } catch (e) {
+                alert("Print failed: " + e.message);
+            }
+        });
+    }
+});
