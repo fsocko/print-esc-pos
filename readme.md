@@ -9,8 +9,8 @@
 
 ## TODO:
 	### Horizontal image print - do a rot like in render font image
-	### Formatter should be able to directly print in localhost.
-
+	### On HTTP server, Still have a CORS issue with fonts (and images?).
+	### basic markdown formatter in text mode.
 
 # Server:
 

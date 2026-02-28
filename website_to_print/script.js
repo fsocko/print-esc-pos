@@ -3,6 +3,7 @@
 // =======================
 let contentFileName = 'segment';   // fallback name
 let contentTitle = '';             // extracted <title> if present
+let API_KEY = null;
 
 // =======================
 // LOAD CONTENT HTML
@@ -175,4 +176,110 @@ function sanitizeName(name) {
         .trim()
         .replace(/\s+/g, '_')
         .replace(/[^\w\-]+/g, '');
+}
+
+
+// =======================
+// Send print to server if on localhost
+// =======================
+
+function isLocalhost() {
+    console.log("is localhost:", window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+    return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+}
+
+async function sendToPrinter() {
+    const content = document.getElementById('content');
+
+    const baseName = contentTitle || contentFileName || "segment";
+
+    const canvas = await html2canvas(content, { scale: 2 });
+
+    // Convert to Base64 string
+    const base64Data = canvas.toDataURL("image/png").split(",")[1];
+
+    // Build JSON
+    const payload = {
+        file_base64: base64Data,
+        filename: baseName + ".png",
+        options: {
+            mode: "image",
+            cut: true
+        }
+    };
+
+    // Send to FastAPI
+    const response = await fetch("http://localhost:8069/api/print", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || response.statusText);
+    }
+
+    alert("Print request sent successfully!");
+}
+
+
+
+document.addEventListener("DOMContentLoaded", () => {
+    if (isLocalhost()) {
+        const btn = document.createElement('button');
+        btn.textContent = "Print to Thermal";
+        btn.id = "printButton";
+        btn.style.margin = "10px";
+
+        const container = document.getElementById('controls') || document.body;
+        container.appendChild(btn);
+
+        btn.addEventListener("click", async () => {
+            try {
+                // Prompt user for API key
+                const apiKey = prompt("Enter API Key for FastAPI:");
+                if (!apiKey) {
+                    alert("No API Key provided. Print cancelled.");
+                    return;
+                }
+
+                await sendToPrinter(apiKey);
+            } catch (e) {
+                alert("Print failed: " + e.message);
+            }
+        });
+    }
+});
+
+async function sendToPrinter(apiKey) {
+    const content = document.getElementById('content');
+    const baseName = contentTitle || contentFileName || "segment";
+
+    const canvas = await html2canvas(content, { scale: 2 });
+    const base64Data = canvas.toDataURL("image/png").split(",")[1];
+
+    const payload = {
+        file_base64: base64Data,
+        filename: baseName + ".png",
+        options: { mode: "image", cut: true }
+    };
+
+    const response = await fetch("http://localhost:8069/api/print", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || response.statusText);
+    }
+
+    alert("Print request sent successfully!");
 }

@@ -99,7 +99,7 @@ def _discover_printer(verbose=True, stream_mode=False):
                             _log(f"Could not claim interface {intf.bInterfaceNumber}: {e}", verbose)
                             continue
 
-                raise PrinterrEror("Printer found but no valid OUT endpoint.")
+                raise PrinterError("Printer found but no valid OUT endpoint.")
 
         except usb.core.USBError as e:
             raise PrinterError(f"USB error while scanning devices: {e}")
