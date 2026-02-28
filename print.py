@@ -47,26 +47,56 @@ def show_all_help():
         print_raw.main(["-h"])
     except SystemExit:
         pass
+    
+def core_print(file=None, mode=None, cut=False, extra_args=None):
+    """
+    Pure print executor.
+    No autodetection.
+    No CLI behavior.
+    Raises exceptions on error.
+    """
 
-def main():
+    if extra_args is None:
+        extra_args = []
+
+    if not mode:
+        raise ValueError("Mode must be explicitly provided")
+
+    submodule_args = []
+    if file:
+        submodule_args.append(file)
+    submodule_args.extend(extra_args)
+
+    if mode == "text":
+        print_text.main(submodule_args)
+    elif mode == "image":
+        print_image.main(submodule_args)
+    elif mode == "raw":
+        print_raw.main(submodule_args)
+    else:
+        raise ValueError(f"Invalid mode: {mode}")
+
+    if cut:
+        printer_utils.cut_paper()
+
+def main_with_args(argv):
+
     parser = argparse.ArgumentParser(
         description="Print text, images, or raw ESC/POS data."
     )
-    parser.add_argument("file", nargs="?", help="File to print")
-    parser.add_argument("--mode", choices=["text","image","raw"],
-                        help="Force input mode instead of autodetect")
-    parser.add_argument("-c", "--cut", action="store_true",
-                        help="Cut paper after printing")
-    parser.add_argument("--help-all", action="store_true",
-                        help="Show full help including all submodules")
 
-    args, extras = parser.parse_known_args()
+    parser.add_argument("file", nargs="?", help="File to print")
+    parser.add_argument("--mode", choices=["text", "image", "raw"])
+    parser.add_argument("-c", "--cut", action="store_true")
+    parser.add_argument("--help-all", action="store_true")
+
+    args, extras = parser.parse_known_args(argv)
 
     if args.help_all:
         show_all_help()
         return
-    
-    # Determine mode
+
+    # CLI autodetect logic
     mode = args.mode or detect_input_type(args.file)
 
     if not mode:
@@ -81,23 +111,19 @@ def main():
             print("\nUse --help-all to see full submodule help")
             return
 
-    submodule_argv = extras
-    if args.file:
-        submodule_argv = [args.file] + extras
-
-    if mode == "text":
-        print_text.main(submodule_argv)
-    elif mode == "image":
-        print_image.main(submodule_argv)
-    elif mode == "raw":
-        print_raw.main(submodule_argv)
-    
-    if args.cut:
-        try:
-            printer_utils.cut_paper()
-        except Exception as e:
-            print(f"Failed to cut paper: {e}")
-            
+    try:
+        core_print(
+            file=args.file,
+            mode=mode,
+            cut=args.cut,
+            extra_args=extras
+        )
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+                        
+def main():
+    main_with_args(sys.argv[1:])            
         
 if __name__ == "__main__":
     main()

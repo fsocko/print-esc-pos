@@ -108,3 +108,23 @@ label {
     padding: 0 4px;
     line-height: 1;
 }
+
+
+@media print {
+    body {
+        /* Add a safe margin on all sides for printing */
+        margin: 10mm;   /* adjust as needed, e.g., 10–15mm */
+        padding: 0;     /* padding inside the page can stay in .page-wrapper */
+        background: #fff;  /* optional: make print background white */
+    }
+
+    .page-wrapper {
+        /* Reduce width so content + margin fits inside the page */
+        width: calc(80mm - 20mm); /* 80mm total width minus 10mm left & right margins */
+        padding: 4mm;             /* keep internal padding */
+    }
+
+    .paste-html {
+        width: 100%;               /* use full width of page-wrapper */
+    }
+}
