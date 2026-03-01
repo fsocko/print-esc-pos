@@ -184,17 +184,19 @@ function sanitizeName(name) {
 // =======================
 
 function isLocalhost() {
-
     const host = window.location.hostname;
 
-   // Accept localhost, 127.0.0.1, or private network IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
     const isLocalOrLAN =
         host === "localhost" ||
         host === "127.0.0.1" ||
-        host === "0.0.0.0"   ||
+        host === "0.0.0.0" ||
+        host === "::1" ||
+        host.endsWith(".local") ||
+        /^[^.]+$/.test(host) || // hostname without dots (e.g. "myserver")
         /^192\.168\.\d{1,3}\.\d{1,3}$/.test(host) ||
         /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
         /^172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host);
+
     console.log("is local?", isLocalOrLAN);
     return isLocalOrLAN;
 }
@@ -274,7 +276,7 @@ async function sendToPrinter(apiKey) {
 document.addEventListener("DOMContentLoaded", () => {
     if (isLocalhost()) {
         const btn = document.createElement('button');
-        btn.textContent = "Print to Thermal";
+        btn.textContent = `Print to Thermal (@${window.location.hostname})`;
         btn.id = "printButton";
         btn.classList.add("button", "print-thermal-btn");
 
