@@ -38,6 +38,12 @@ app = FastAPI(title="Thermal Printer API")
 WEB_FOLDER = os.path.join(PROJECT_ROOT, "website_to_print")
 app.mount("/formatter", StaticFiles(directory=WEB_FOLDER, html=True), name="formatter")
 
+app.mount(
+    "/assets",
+    StaticFiles(directory="D:/099-scripts/prints"),
+    name="assets"
+)
+
 
 # -------------------------------------------------
 # Authentication
