@@ -8,6 +8,10 @@ from escpos.printer import Usb
 
 PRINTER_VENDOR_ID = 0x0416
 PRINTER_PRODUCT_ID = 0x5011
+PRINTER_CHAR_WIDTH = 48
+PRINTER_WIDTH_PX = 640
+PRINTER_DPI = 203  # Usually 203 DPI = 8 dots/mm
+
 
 _PRINTER = None
 

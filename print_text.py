@@ -9,7 +9,7 @@ from itertools import cycle
 
 sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
 
-PRINTER_CHAR_WIDTH = 48
+PRINTER_CHAR_WIDTH = printer_utils.PRINTER_CHAR_WIDTH
 FLUSH_LINES = 20
 FLUSH_INTERVAL = 4
 

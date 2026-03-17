@@ -6,15 +6,22 @@ import print_text
 import print_image
 import print_raw
 import printer_utils
+import print_markdown
 
 def is_image_file(path: str) -> bool:
     ext = path.lower().rsplit(".", 1)[-1]
     return ext in ("png", "jpg", "jpeg", "bmp", "gif")
 
+def is_markdown_file(path: str) -> bool:
+    ext = path.lower().rsplit(".", 1)[-1]
+    return ext in ("md", "mkd")
+
 def detect_input_type(file_path=None):
     if file_path:
         if is_image_file(file_path):
             return "image"
+        elif is_markdown_file(file_path):
+            return "markdown"
         try:
             with open(file_path, "rb") as f:
                 f.read(512).decode("utf-8")
@@ -69,6 +76,8 @@ def core_print(file=None, mode=None, cut=False, extra_args=None):
 
     if mode == "text":
         print_text.main(submodule_args)
+    elif mode == "markdown":
+        print_markdown.main(submodule_args)
     elif mode == "image":
         print_image.main(submodule_args)
     elif mode == "raw":
@@ -86,7 +95,7 @@ def main_with_args(argv):
     )
 
     parser.add_argument("file", nargs="?", help="File to print")
-    parser.add_argument("--mode", choices=["text", "image", "raw"])
+    parser.add_argument("--mode", choices=["text", "image", "raw", "markdown"])
     parser.add_argument("-c", "--cut", action="store_true")
     parser.add_argument("--help-all", action="store_true")
 

@@ -5,9 +5,9 @@ import printer_utils
 import os
 
 # Printer constants (kept in sync with your original file)
-PRINTER_CHAR_WIDTH = 48
-PRINTER_WIDTH_PX = 640
-PRINTER_DPI = 203  # Usually 203 DPI = 8 dots/mm
+PRINTER_CHAR_WIDTH = printer_utils.PRINTER_CHAR_WIDTH
+PRINTER_WIDTH_PX = printer_utils.PRINTER_WIDTH_PX
+PRINTER_DPI = printer_utils.PRINTER_DPI
 
 # Correction multipliers for fine-tuning physical accuracy
 HORIZONTAL_SCALE_CORRECTION = 1.00
