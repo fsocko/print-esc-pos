@@ -13,6 +13,8 @@
 ## TODO:
 ------------------------------------
 
+## Figure out better formatting for formatter - ends are always cut off by 3-4mm?
+
 ##	1.1CLI does not seem to work right when server is up.
 
 ##	2. Correct host resolution for hostname.local pattern in formatter.
