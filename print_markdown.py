@@ -39,7 +39,7 @@ def analyze_decimal_columns(rows, col_count):
 
 
 # ---------------------------
-# Printer Wrapper
+# Printer Wrapper (CLEAN)
 # ---------------------------
 
 class EscPosPrinter:
@@ -49,6 +49,12 @@ class EscPosPrinter:
 
     def set_align(self, align):
         self.printer.set(align=align)
+
+    def set_style(self, bold=False, italic=False):
+        self.printer.set(
+            bold=bold,
+            font='b' if italic else 'a'
+        )
 
     def write(self, txt):
         self.printer.text(ftfy.fix_text(txt))
@@ -72,6 +78,9 @@ class EscPosPrinter:
         clean = ftfy.fix_text(txt.ljust(PRINTER_CHAR_WIDTH)[:PRINTER_CHAR_WIDTH])
         self.printer.text(clean + "\n")
 
+    def raw_line_no_wrap(self, txt):
+        self.raw_line(txt)
+
     def bold(self, on=True):
         self.printer.set(bold=on)
 
@@ -84,6 +93,18 @@ class EscPosPrinter:
     def hr(self):
         self.raw_line("-" * PRINTER_CHAR_WIDTH)
 
+    def qr(self, text):
+        self.set_align("center")
+        self.printer.qr(text, size=8)
+        self.newline()
+        self.set_align("left")
+
+    def barcode(self, code, code_type="EAN13"):
+        self.set_align("center")
+        self.printer.barcode(code, code_type, width=2, height=100, pos='below', font='a')
+        self.newline()
+        self.set_align("left")
+
     def cut(self):
         self.printer.cut()
 
@@ -92,64 +113,98 @@ class EscPosPrinter:
 
 
 # ---------------------------
-# AST Renderer
+# AST Renderer (CLEAN)
 # ---------------------------
 
 class AstPrinter:
     def __init__(self, printer):
         self.p = printer
-
-        # inline state
         self.bold = False
         self.italic = False
-
-        # current text buffer
         self.buffer = ""
 
-    # ---------- Inline helpers ----------
-
-    def _apply_style(self):
-        self.p.bold(self.bold)
-        self.p.font('b' if self.italic else 'a')
+    # ---------------------------
+    # Inline handling
+    # ---------------------------
 
     def _append(self, text):
         if text:
             self.buffer += text
 
     def _flush(self):
-        if self.buffer:
-            self._apply_style()
-            self.p.wrapped_text(self.buffer)
-            self.buffer = ""
+        if not self.buffer:
+            return
+        self.p.set_style(self.bold, self.italic)
+        self._print_with_commands(self.buffer)
+        self.buffer = ""
 
-    # ---------- AST walking ----------
+    def _print_with_commands(self, text):
+        i = 0
+        buf = ""
+
+        def flush_buf():
+            nonlocal buf
+            if buf:
+                self.p.write(buf)
+                buf = ""
+
+        while i < len(text):
+            if text.startswith("[qrcode:", i):
+                flush_buf()
+                end = text.find("]", i)
+                if end != -1:
+                    qr = text[i+8:end].strip()
+                    if qr:
+                        self.p.qr(qr)
+                    i = end + 1
+                    continue
+
+            elif text.startswith("[barcode:", i):
+                flush_buf()
+                end = text.find("]", i)
+                if end != -1:
+                    content = text[i+9:end].strip()
+                    if content:
+                        parts = content.split(":")
+                        code = parts[0]
+                        code_type = parts[1].upper() if len(parts) > 1 else "EAN13"
+                        self.p.barcode(code, code_type)
+                    i = end + 1
+                    continue
+
+            buf += text[i]
+            i += 1
+
+        flush_buf()
+
+    # ---------------------------
+    # AST walking
+    # ---------------------------
 
     def render(self, ast):
         for node in ast:
-            self._render_node(node)
+            self._node(node)
 
-    def _render_children(self, node):
-        for child in node.get("children", []):
-            self._render_node(child)
+    def _children(self, node):
+        for c in node.get("children", []):
+            self._node(c)
 
-    def _render_node(self, node):
+    def _node(self, node):
         t = node["type"]
 
-        # ---------- TEXT ----------
         if t == "text":
             self._append(node.get("raw", ""))
 
-        # ---------- INLINE ----------
         elif t == "strong":
             prev = self.bold
             self.bold = True
-            self._render_children(node)
+            self._children(node)
             self.bold = prev
 
         elif t == "emphasis":
             prev = self.italic
             self.italic = True
-            self._render_children(node)
+            self._children(node)
             self.italic = prev
 
         elif t == "codespan":
@@ -161,42 +216,40 @@ class AstPrinter:
         elif t == "softbreak":
             self._append(" ")
 
-        # ---------- PARAGRAPH ----------
         elif t == "paragraph":
-            self._render_children(node)
+            self._children(node)
             self._flush()
             self.p.newline()
 
-        # ---------- HEADINGS ----------
         elif t == "heading":
             level = node["attrs"]["level"]
             self._flush()
+
+            text = self._capture_text(node)
 
             if level == 1:
                 self.p.hr()
                 self.p.set_align("center")
                 self.p.bold(True)
                 self.p.size(2, 2)
+                self.p.wrapped_text(text.upper())
+                self.p.hr()
 
             elif level == 2:
                 self.p.bold(True)
                 self.p.size(2, 1)
+                self.p.wrapped_text(text.upper())
+                self.p.hr()
 
             else:
                 self.p.bold(True)
-
-            self._render_children(node)
-            self._flush()
-
-            if level <= 2:
-                self.p.hr()
+                self.p.wrapped_text(text)
 
             self.p.size(1, 1)
             self.p.bold(False)
             self.p.set_align("left")
             self.p.newline()
 
-        # ---------- CODE BLOCK ----------
         elif t == "block_code":
             self._flush()
             self.p.hr()
@@ -204,62 +257,64 @@ class AstPrinter:
                 self.p.wrapped_text(line)
             self.p.hr()
 
-        # ---------- HR ----------
         elif t == "thematic_break":
             self._flush()
             self.p.hr()
 
-        # ---------- LIST ----------
         elif t == "list":
             for item in node["children"]:
-                self._render_node(item)
+                self._node(item)
 
         elif t == "list_item":
             self._flush()
-            prev_buffer = self.buffer
-            self.buffer = ""
-
-            self._render_children(node)
-            content = self.buffer.strip()
-            self.buffer = prev_buffer
-
-            wrapped = textwrap.wrap(content, width=PRINTER_CHAR_WIDTH - 2)
-
+            text = self._capture_text(node)
+            wrapped = textwrap.wrap(text, width=PRINTER_CHAR_WIDTH - 2)
             if wrapped:
                 self.p.raw_line("• " + wrapped[0])
                 for line in wrapped[1:]:
                     self.p.raw_line("  " + line)
 
-        # ---------- TABLE ----------
         elif t == "table":
             self._flush()
-
             header = []
             body = []
 
             for child in node["children"]:
                 if child["type"] == "table_head":
-                    header = self._extract_table(child)
+                    header = self._extract_rows(child)
                 elif child["type"] == "table_body":
-                    body = self._extract_table(child)
+                    body = self._extract_rows(child)
 
             self._render_table(header, body)
 
-        # ---------- FALLBACK ----------
-        else:
-            # ignore unknown nodes safely
-            pass
+    # ---------------------------
+    # Safe capture
+    # ---------------------------
 
-    # ---------- TABLE HELPERS ----------
+    def _capture_text(self, node):
+        saved_buffer = self.buffer
+        saved_bold = self.bold
+        saved_italic = self.italic
 
-    def _extract_table(self, node):
+        self.buffer = ""
+        self.bold = False
+        self.italic = False
+
+        self._children(node)
+        text = self.buffer.strip()
+
+        self.buffer = saved_buffer
+        self.bold = saved_bold
+        self.italic = saved_italic
+
+        return text
+
+    def _extract_rows(self, node):
         rows = []
         for row in node["children"]:
             r = []
             for cell in row["children"]:
-                self.buffer = ""
-                self._render_children(cell)
-                r.append(self.buffer.strip())
+                r.append(self._capture_text(cell))
             rows.append(r)
         return rows
 
@@ -278,15 +333,13 @@ class AstPrinter:
 
         padding = 2
         col_width = (PRINTER_CHAR_WIDTH - (col_count - 1) * padding) // col_count
-        col_widths = [col_width] * col_count
 
         self.p.hr()
 
         for row_idx, row in enumerate(rows):
             line = ""
-
             for col_idx, cell in enumerate(row):
-                width = col_widths[col_idx]
+                width = col_width
                 ci = col_info[col_idx]
 
                 if is_number(cell):
@@ -304,7 +357,7 @@ class AstPrinter:
                 if col_idx < col_count - 1:
                     line += " " * padding
 
-            self.p.raw_line(line)
+            self.p.raw_line_no_wrap(line)
 
             if header and row_idx == len(header) - 1:
                 self.p.hr()
@@ -324,7 +377,6 @@ def render_markdown(md_text, cut=False):
     ast = md(md_text)
 
     renderer.render(ast)
-
     renderer._flush()
 
     if cut:
