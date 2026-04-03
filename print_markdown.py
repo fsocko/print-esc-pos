@@ -240,6 +240,20 @@ class AstPrinter:
                 self.p.size(2, 1)
                 self.p.wrapped_text(text.upper())
                 self.p.hr()
+                
+            elif level == 3:
+                self.p.bold(True)
+                self.p.size(1, 1)
+                self.p.wrapped_text(text)
+
+            elif level == 4:
+                self.p.wrapped_text(f"# {text}")
+
+            elif level == 5:
+                self.p.wrapped_text(f"- {text}")
+
+            elif level == 6:
+                self.p.wrapped_text(f"  {text}")
 
             else:
                 self.p.bold(True)
@@ -262,18 +276,38 @@ class AstPrinter:
             self.p.hr()
 
         elif t == "list":
-            for item in node["children"]:
+            for item in node.get("children", []):
                 self._node(item)
 
         elif t == "list_item":
             self._flush()
-            text = self._capture_text(node)
+
+            # Recursively collect all text inside this list_item, preserving formatting
+            def capture_list_item_text(node):
+                texts = []
+                for c in node.get("children", []):
+                    if c["type"] == "text":
+                        texts.append(c.get("raw", ""))
+                    elif c["type"] in ("strong", "emphasis", "codespan"):
+                        # Temporarily apply formatting
+                        prev_bold, prev_italic = self.bold, self.italic
+                        if c["type"] == "strong":
+                            self.bold = True
+                        elif c["type"] == "emphasis":
+                            self.italic = True
+                        texts.append(capture_list_item_text(c))
+                        self.bold, self.italic = prev_bold, prev_italic
+                    else:
+                        texts.append(capture_list_item_text(c))
+                return "".join(texts)
+
+            text = capture_list_item_text(node)
             wrapped = textwrap.wrap(text, width=PRINTER_CHAR_WIDTH - 2)
             if wrapped:
                 self.p.raw_line("• " + wrapped[0])
                 for line in wrapped[1:]:
                     self.p.raw_line("  " + line)
-
+        
         elif t == "table":
             self._flush()
             header = []
