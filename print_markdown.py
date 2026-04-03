@@ -1,9 +1,18 @@
 import sys
 import textwrap
-import mistune
 import printer_utils
 import ftfy
 import re
+
+from marko import Markdown
+from marko.ext import gfm
+from marko.block import Heading, Paragraph, List, ListItem, FencedCode, ThematicBreak
+from marko.inline import Emphasis, CodeSpan, LineBreak, AutoLink, Link
+
+
+from marko import Markdown
+from marko.block import Heading, Paragraph, List, ListItem, FencedCode, ThematicBreak
+from marko.ext import gfm
 
 PRINTER_CHAR_WIDTH = printer_utils.PRINTER_CHAR_WIDTH
 
@@ -37,8 +46,19 @@ def analyze_decimal_columns(rows, col_count):
         col_info.append({"left": left_max, "right": right_max, "decimal": has_decimal})
     return col_info
 
+def _text(node):
+    """
+    Recursively extract text from a node.
+    Leaf nodes are just strings in Marko 2.2.2.
+    """
+    if isinstance(node, str):
+        return node
+    if hasattr(node, "children"):
+        return "".join(_text(c) for c in node.children)
+    return str(getattr(node, "children", ""))
+
 # ---------------------------
-# Printer Wrapper (CLEAN)
+# ESC/POS Printer Wrapper
 # ---------------------------
 
 class EscPosPrinter:
@@ -109,9 +129,11 @@ class EscPosPrinter:
 
     def close(self):
         self.printer.close()
+        
+    
 
 # ---------------------------
-# AST Renderer (FIXED)
+# AST Renderer
 # ---------------------------
 
 class AstPrinter:
@@ -121,10 +143,7 @@ class AstPrinter:
         self.italic = False
         self.buffer = ""
 
-    # ---------------------------
-    # Inline handling
-    # ---------------------------
-
+    # --- Inline commands QR/Barcode ---
     def _append(self, text):
         if text:
             self.buffer += text
@@ -132,17 +151,16 @@ class AstPrinter:
     def _flush(self):
         if not self.buffer:
             return
-        self.p.set_style(self.bold, self.italic)
         self._print_with_commands(self.buffer)
         self.buffer = ""
 
     def _print_with_commands(self, text):
         i = 0
         buf = ""
-
         def flush_buf():
             nonlocal buf
             if buf:
+                self.p.set_style(self.bold, self.italic)
                 self.p.write(buf)
                 buf = ""
 
@@ -156,7 +174,6 @@ class AstPrinter:
                         self.p.qr(qr)
                     i = end + 1
                     continue
-
             elif text.startswith("[barcode:", i):
                 flush_buf()
                 end = text.find("]", i)
@@ -169,261 +186,211 @@ class AstPrinter:
                         self.p.barcode(code, code_type)
                     i = end + 1
                     continue
-
             buf += text[i]
             i += 1
-
         flush_buf()
+        
+    def _text(self, node):
+        """
+        Recursively extract text from a node.
+        """
+        if isinstance(node, str):
+            return node
+        if hasattr(node, "children"):
+            return "".join(self._text(c) for c in node.children)
+        return str(getattr(node, "children", ""))
 
-    # ---------------------------
-    # AST walking
-    # ---------------------------
-
-    def render(self, ast):
-        for node in ast:
-            self._node(node)
-
-    def _children(self, node):
-        for c in node.get("children", []):
-            self._node(c)
-
+    # --- Node traversal ---
     def _node(self, node):
-        t = node["type"]
+        node_type = node.__class__.__name__
 
-        # ---------- INLINE ----------
-        if t == "text":
-            self._append(node.get("raw", ""))
+        # --- Inline nodes ---
+        if isinstance(node, str):
+            self._append(_text(node))
+            return
 
-        elif t == "strong":
+        if node_type == "Strong":
             prev = self.bold
             self.bold = True
-            self._children(node)
+            for c in getattr(node, "children", []):
+                self._node(c)
             self.bold = prev
 
-        elif t == "emphasis":
+        if node_type == "Emphasis":
             prev = self.italic
             self.italic = True
-            self._children(node)
+            for c in getattr(node, "children", []):
+                self._node(c)
             self.italic = prev
-
-        elif t == "codespan":
-            self._append(f"[{node.get('raw','')}]")
-
-        elif t == "linebreak":
-            self._flush()
-
-        elif t == "softbreak":
-            self._append(" ")
-
-        # ---------- BLOCKS ----------
-        elif t == "paragraph":
-            self._children(node)
+            
+        if node_type == "CodeSpan":
+            self._append(f"[{_text(node)}]")
+            return
+        if node_type == "LineBreak":
             self._flush()
             self.p.newline()
+            return
 
-        elif t == "heading":
-            level = node["attrs"]["level"]
+        # --- Block nodes ---
+        if node_type == "Paragraph":
+            self._append(_text(node))
             self._flush()
-            text = self._capture_text(node)
-
+            self.p.newline()
+        elif node_type == "Heading":
+            level = getattr(node, "level", 1)
+            self._flush()
+            text = self._text(node)
+            
             if level == 1:
                 self.p.hr()
                 self.p.set_align("center")
                 self.p.bold(True)
-                self.p.size(2, 2)
+                self.p.size(2,2)
                 self.p.wrapped_text(text.upper())
                 self.p.hr()
-
             elif level == 2:
+                self.p.wrapped_text("\n")
                 self.p.bold(True)
-                self.p.size(2, 1)
+                self.p.size(2,1)
                 self.p.wrapped_text(text.upper())
                 self.p.hr()
-                
             elif level == 3:
                 self.p.bold(True)
-                self.p.size(1, 1)
+                self.p.size(1,1)
                 self.p.wrapped_text(text)
-
-            elif level == 4:
-                self.p.wrapped_text(f"# {text}")
-
-            elif level == 5:
-                self.p.wrapped_text(f"- {text}")
-
-            elif level == 6:
-                self.p.wrapped_text(f"  {text}")
-
             else:
+                # Levels 4–6
                 self.p.bold(True)
-                self.p.wrapped_text(text)
-
-            self.p.size(1, 1)
+                self.p.size(1,1)
+                prefix = {4:"# ",5:"- ",6:"  "}.get(level, "")
+                self.p.wrapped_text(f"{prefix}{text}")
+            self.p.size(1,1)
             self.p.bold(False)
             self.p.set_align("left")
             self.p.newline()
-
-        elif t == "block_code":
+        elif node_type == "FencedCode":
             self._flush()
             self.p.hr()
-            for line in node["raw"].splitlines():
+            code_text = _text(node)
+            for line in code_text.splitlines():
                 self.p.wrapped_text(line)
             self.p.hr()
-
-        elif t == "thematic_break":
+        elif node_type == "ThematicBreak":
             self._flush()
             self.p.hr()
-
-        # ---------- LISTS ----------
-        elif t == "list":
-            for item in node.get("children", []):
+        elif node_type == "List":
+            for item in getattr(node, "children", []):
                 self._node(item)
-
-        elif t == "list_item":
-            # Save current formatting
-            saved_bold, saved_italic = self.bold, self.italic
-
-            # Internal recursive printer for the list item
-            def print_list_item_node(node):
-                t = node["type"]
-                if t == "text":
-                    self.p.set_style(self.bold, self.italic)
-                    self.p.write(node.get("raw", ""))
-                elif t == "strong":
-                    prev = self.bold
-                    self.bold = True
-                    for c in node.get("children", []):
-                        print_list_item_node(c)
-                    self.bold = prev
-                elif t == "emphasis":
-                    prev = self.italic
-                    self.italic = True
-                    for c in node.get("children", []):
-                        print_list_item_node(c)
-                    self.italic = prev
-                elif t == "codespan":
-                    self.p.set_style(self.bold, self.italic)
-                    self.p.write(f"[{node.get('raw','')}]")
-                elif t in ("paragraph", "list_item"):
-                    for c in node.get("children", []):
-                        print_list_item_node(c)
-
-            # Wrap text and print per line with bullet
-            bullet_prefix = "• "
-            indent = len(bullet_prefix)
-
-            # Collect plain text for wrapping, but still traverse formatting for printing
-            def collect_plain_text(node):
-                if node["type"] == "text":
-                    return node.get("raw","")
-                return "".join(collect_plain_text(c) for c in node.get("children",[]))
-
-            plain_text = collect_plain_text(node)
-            wrapped_lines = textwrap.wrap(plain_text, width=PRINTER_CHAR_WIDTH - indent)
-
+        elif node_type == "ListItem":
+            bullet = "• "
+            indent = len(bullet)
+            lines = []
+            # Capture the text of children without printing
+            for c in getattr(node, "children", []):
+                lines.append(self._text(c))
+            wrapped_lines = textwrap.wrap(" ".join(lines), width=PRINTER_CHAR_WIDTH - indent)
             for i, line in enumerate(wrapped_lines):
                 if i == 0:
-                    self.p.raw_line(bullet_prefix + line)
+                    self.p.raw_line(bullet + line)
                 else:
                     self.p.raw_line(" " * indent + line)
-
-            # Now print each child with proper inline formatting
-            for child in node.get("children", []):
-                print_list_item_node(child)
-
-            # Restore formatting
-            self.bold, self.italic = saved_bold, saved_italic
-
-      
-        # ---------- TABLE ----------
-        elif t == "table":
             self._flush()
+            self.p.newline()
+        elif node_type in ("Table", "TableBlock"):
+            self._flush()
+            # header
             header = []
+            if hasattr(node, "header") and node.header:
+                header_row = [_text(c) for c in getattr(node.header, "children", [])]
+                header.append(header_row)
+            # body
             body = []
-
-            for child in node["children"]:
-                if child["type"] == "table_head":
-                    header = self._extract_rows(child)
-                elif child["type"] == "table_body":
-                    body = self._extract_rows(child)
-
+            for row in getattr(node, "children", []):
+                # skip header row if already included
+                if getattr(row, "is_header", False):
+                    continue
+                body_row = [_text(c) for c in getattr(row, "children", [])]
+                body.append(body_row)
             self._render_table(header, body)
 
-    # ---------------------------
-    # Safe capture for headings/tables
-    # ---------------------------
+    # --- Render AST ---
+    def render(self, ast):
+        if hasattr(ast, "children"):
+            for node in ast.children:
+                self._node(node)
+        else:
+            self._node(ast)
+        self._flush()
 
-    def _capture_text(self, node):
-        saved_buffer = self.buffer
-        saved_bold = self.bold
-        saved_italic = self.italic
-
-        self.buffer = ""
-        self.bold = False
-        self.italic = False
-
-        self._children(node)
-        text = self.buffer.strip()
-
-        self.buffer = saved_buffer
-        self.bold = saved_bold
-        self.italic = saved_italic
-
-        return text
-
-    def _extract_rows(self, node):
-        rows = []
-        for row in node["children"]:
-            r = []
-            for cell in row["children"]:
-                r.append(self._capture_text(cell))
-            rows.append(r)
-        return rows
-
-    # ---------------------------
-    # Table rendering
-    # ---------------------------
-
+    # --- Table rendering ---
     def _render_table(self, header, body):
-        rows = header + body
-        if not rows:
+        if not header and not body:
             return
 
-        col_count = max(len(r) for r in rows)
-        for r in rows:
+        col_count = max(
+            max(len(r) for r in header) if header else 0,
+            max(len(r) for r in body) if body else 0
+        )
+        for r in header:
+            while len(r) < col_count:
+                r.append("")
+        for r in body:
             while len(r) < col_count:
                 r.append("")
 
-        col_info = analyze_decimal_columns(rows, col_count)
         padding = 2
         col_width = (PRINTER_CHAR_WIDTH - (col_count - 1) * padding) // col_count
 
-        self.p.hr()
-        for row_idx, row in enumerate(rows):
-            line = ""
+        col_info = analyze_decimal_columns(header + body, col_count)
+
+        # Print header
+        if header:
+            wrapped_header = []
+            max_lines = 0
+            for col_idx in range(col_count):
+                cell_text = header[0][col_idx] if col_idx < len(header[0]) else ""
+                wrapped = textwrap.wrap(cell_text, width=col_width) or [""]
+                wrapped_header.append(wrapped)
+                max_lines = max(max_lines, len(wrapped))
+            for i in range(max_lines):
+                line = ""
+                for col_idx, col_lines in enumerate(wrapped_header):
+                    cell = col_lines[i] if i < len(col_lines) else ""
+                    line += cell.ljust(col_width)
+                    if col_idx < col_count - 1:
+                        line += " " * padding
+                self.p.raw_line_no_wrap(line)
+            self.p.hr()
+
+        # Print body
+        for row in body:
+            wrapped_cols = []
+            max_lines = 0
             for col_idx, cell in enumerate(row):
-                width = col_width
-                ci = col_info[col_idx]
-
-                if is_number(cell):
-                    if ci["decimal"]:
-                        left, right = split_decimal(cell)
-                        left = left.rjust(ci["left"])
-                        right = right.ljust(ci["right"])
-                        formatted = f"{left}.{right}".rjust(width)
+                wrapped = textwrap.wrap(cell, width=col_width) or [""]
+                wrapped_cols.append(wrapped)
+                max_lines = max(max_lines, len(wrapped))
+            for i in range(max_lines):
+                line = ""
+                for col_idx, col_lines in enumerate(wrapped_cols):
+                    cell_text = col_lines[i] if i < len(col_lines) else ""
+                    # alignment
+                    align = "left"
+                    if header:
+                        # Try to use alignment from the first header cell
+                        header_node = node.header.children[col_idx] if col_idx < len(node.header.children) else None
+                        if header_node and getattr(header_node, "align", None):
+                            align = header_node.align
+                    if align == "right":
+                        cell_text = cell_text.rjust(col_width)
                     else:
-                        formatted = cell.rjust(width)
-                else:
-                    formatted = cell.ljust(width)
-
-                line += formatted
-                if col_idx < col_count - 1:
-                    line += " " * padding
-
-            self.p.raw_line_no_wrap(line)
-            if header and row_idx == len(header) - 1:
-                self.p.hr()
+                        cell_text = cell_text.ljust(col_width)
+                    line += cell_text
+                    if col_idx < col_count - 1:
+                        line += " " * padding
+                self.p.raw_line_no_wrap(line)
         self.p.hr()
+
 
 # ---------------------------
 # Entry Point
@@ -433,11 +400,10 @@ def render_markdown(md_text, cut=False):
     printer = EscPosPrinter()
     renderer = AstPrinter(printer)
 
-    md = mistune.create_markdown(renderer=None, plugins=["table"])
-    ast = md(md_text)
+    md = Markdown(extensions=["gfm"])
+    ast = md.parse(md_text)
 
     renderer.render(ast)
-    renderer._flush()
 
     if cut:
         printer.cut()
@@ -457,12 +423,12 @@ def main(args=None):
         if not os.path.exists(parsed.file):
             print(f"File not found: {parsed.file}")
             sys.exit(1)
-        with open(parsed.file, "r", encoding="utf-8") as f:
-            md = f.read()
+        with open(parsed.file,"r",encoding="utf-8") as f:
+            md=f.read()
     else:
-        md = sys.stdin.read()
+        md=sys.stdin.read()
 
     render_markdown(md, cut=parsed.cut)
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
