@@ -37,47 +37,46 @@ def analyze_decimal_columns(rows, col_count):
         col_info.append({"left": left_max, "right": right_max, "decimal": has_decimal})
     return col_info
 
+
 # ---------------------------
-# ESC/POS Printer Wrapper
+# Printer Wrapper
 # ---------------------------
 
 class EscPosPrinter:
     def __init__(self):
         self.printer = printer_utils.find_printer()
-        self.printer.text("\n") # Prepend new line for compatibility
+        self.printer.text("\n")
 
     def set_align(self, align):
         self.printer.set(align=align)
 
-    def text(self, txt):
+    def write(self, txt):
+        self.printer.text(ftfy.fix_text(txt))
+
+    def newline(self, n=1):
+        self.printer.text("\n" * n)
+
+    def wrapped_text(self, txt, indent=0):
         wrapped = textwrap.wrap(
             txt,
-            width=PRINTER_CHAR_WIDTH,
+            width=PRINTER_CHAR_WIDTH - indent,
             break_long_words=True,
             break_on_hyphens=False
         ) or [""]
-        for line in wrapped:
-            clean = ftfy.fix_text(line)
-            self.printer.text(clean + "\n")
+
+        for i, line in enumerate(wrapped):
+            prefix = " " * indent if i > 0 else ""
+            self.printer.text(ftfy.fix_text(prefix + line) + "\n")
 
     def raw_line(self, txt):
-        wrapped = textwrap.wrap(
-            txt,
-            width=PRINTER_CHAR_WIDTH,
-            break_long_words=True,
-            break_on_hyphens=False
-        ) or [""]
-        for line in wrapped:
-            clean = ftfy.fix_text(line)
-            self.printer.text(clean + "\n")
-            
-    def raw_line_no_wrap(self, txt):
         clean = ftfy.fix_text(txt.ljust(PRINTER_CHAR_WIDTH)[:PRINTER_CHAR_WIDTH])
         self.printer.text(clean + "\n")
 
-
     def bold(self, on=True):
         self.printer.set(bold=on)
+
+    def font(self, font):
+        self.printer.set(font=font)
 
     def size(self, w=1, h=1):
         self.printer.set(width=w, height=h)
@@ -85,326 +84,233 @@ class EscPosPrinter:
     def hr(self):
         self.raw_line("-" * PRINTER_CHAR_WIDTH)
 
-    def newline(self, n=1):
-        self.printer.text("\n" * n)
-
     def cut(self):
         self.printer.cut()
 
     def close(self):
         self.printer.close()
 
+
 # ---------------------------
-# Markdown Renderer
+# AST Renderer
 # ---------------------------
 
-class EscPosRenderer(mistune.HTMLRenderer):
+class AstPrinter:
     def __init__(self, printer):
-        super().__init__()
         self.p = printer
-        # table state
-        self._current_row = []
-        self._header = []
-        self._body = []
-        self._in_header = False
 
-    # Basic
-    def paragraph(self, text):
-        self._print_inline(text)
-        self.p.newline(2)  # add extra line after paragraph for spacing
-        return ""
-    
-    def heading(self, text, level):
-        if level == 1:
-            self.p.hr()
-            self.p.bold(True)
-            self.p.size(2, 2)
-            self.p.set_align("center")
-            self.p.text(text.upper())
-            self.p.hr()
+        # inline state
+        self.bold = False
+        self.italic = False
 
-        elif level == 2:
-            self.p.bold(True)
-            self.p.size(2, 1)
-            self.p.text(text.upper())
-            self.p.hr()
+        # current text buffer
+        self.buffer = ""
 
-        elif level == 3:
-            self.p.bold(True)
-            self.p.size(1, 1)
-            self.p.text(text)
+    # ---------- Inline helpers ----------
 
-        elif level == 4:
-            self.p.text(f"# {text}")
+    def _apply_style(self):
+        self.p.bold(self.bold)
+        self.p.font('b' if self.italic else 'a')
 
-        elif level == 5:
-            self.p.text(f"- {text}")
+    def _append(self, text):
+        if text:
+            self.buffer += text
 
-        elif level == 6:
-            self.p.text(f"--- {text}")
-        
-        self.p.size(1, 1)
-        self.p.bold(False)
-        self.p.set_align("left")
-        self.p.newline()
-        return ""
+    def _flush(self):
+        if self.buffer:
+            self._apply_style()
+            self.p.wrapped_text(self.buffer)
+            self.buffer = ""
 
-    def strong(self, text):
-        return f"<b>{text or ''}</b>"
+    # ---------- AST walking ----------
 
-    def emphasis(self, text):
-        return f"<i>{text or ''}</i>"
-    
-    def codespan(self, text):
-        return f"<code>{text or ''}</code>"
+    def render(self, ast):
+        for node in ast:
+            self._render_node(node)
 
-    def block_code(self, code, info=None):
-        self.p.hr()
-        for line in code.splitlines():
-            self.p.text(line)  # instead of raw_line
-        self.p.hr()
-        return ""
+    def _render_children(self, node):
+        for child in node.get("children", []):
+            self._render_node(child)
 
-    def list_item(self, text):
-        prefix = "• "
-        indent = "  "
+    def _render_node(self, node):
+        t = node["type"]
 
-        wrapped = textwrap.wrap(
-            text,
-            width=PRINTER_CHAR_WIDTH - len(prefix),
-            break_long_words=True
-        )
+        # ---------- TEXT ----------
+        if t == "text":
+            self._append(node.get("raw", ""))
 
-        if not wrapped:
-            return ""
+        # ---------- INLINE ----------
+        elif t == "strong":
+            prev = self.bold
+            self.bold = True
+            self._render_children(node)
+            self.bold = prev
 
-        self.p.raw_line(prefix + wrapped[0])
+        elif t == "emphasis":
+            prev = self.italic
+            self.italic = True
+            self._render_children(node)
+            self.italic = prev
 
-        for line in wrapped[1:]:
-            self.p.raw_line(indent + line)
-        return ""
+        elif t == "codespan":
+            self._append(f"[{node.get('raw','')}]")
 
-    def _print_inline(self, text):
-        i = 0
-        buffer = ""
-        bold = False
-        italic = False
-        code = False
+        elif t == "linebreak":
+            self._flush()
 
-        def flush_buffer():
-            nonlocal buffer
-            if not buffer:
-                return
-            font = 'b' if italic else 'a'
-            self.p.printer.set(font=font, bold=bold)
-            self.p.printer.text(buffer)
-            buffer = ""
-            if italic:
-                self.p.printer.set(font='a', bold=bold)
+        elif t == "softbreak":
+            self._append(" ")
 
-        while i < len(text or ""):
-            if text.startswith("<b>", i):
-                flush_buffer()
-                bold = True
-                i += 3
-            elif text.startswith("</b>", i):
-                flush_buffer()
-                bold = False
-                i += 4
-            elif text.startswith("<i>", i):
-                flush_buffer()
-                italic = True
-                i += 3
-            elif text.startswith("</i>", i):
-                flush_buffer()
-                italic = False
-                i += 4
-            elif text.startswith("<code>", i):
-                flush_buffer()
-                code = True
-                i += 6
-            elif text.startswith("</code>", i):
-                flush_buffer()
-                code = False
-                i += 7
-            elif text.startswith("<br>", i) or text.startswith("\n", i):
-                flush_buffer()
-                self.p.newline()
-                i += 4 if text.startswith("<br>", i) else 1
-            elif text.startswith("[qrcode:", i):
-                #example: "[qrcode:https://example.com]"
-                flush_buffer()
-                end = text.find("]", i)
-                if end != -1:
-                    qr_text = text[i+8:end].strip().replace("\n", "")
-                    if qr_text:
-                        self.p.set_align("center")
-                        self.p.printer.qr(qr_text, size=8)
-                        self.p.newline()
-                        self.p.set_align("left")
-                    i = end + 1
-                else:
-                    buffer += text[i]
-                    i += 1
-            elif text.startswith("[barcode:", i):
-                
-                #example: "[barcode:123456789012]"        # defaults to EAN13
-                #example: "[barcode:ABC123:CODE39]"       # explicitly use Code39
-                
-                flush_buffer()
-                end = text.find("]", i)
-                if end != -1:
-                    # Extract content between [barcode: and ]
-                    content = text[i+9:end].strip().replace("\n", "")
-                    if content:
-                        parts = content.split(":")
-                        code_text = parts[0]
-                        code_type = parts[1].upper() if len(parts) > 1 else "EAN13"
-                        self.p.set_align("center")
-                        self.p.printer.barcode(
-                            code_text,
-                            code_type,     # barcode type, optional
-                            width=2,
-                            height=100,
-                            pos='below',
-                            font='a'
-                        )
-                        self.p.newline()
-                        self.p.set_align("left")
-                    i = end + 1
-                else:
-                    buffer += text[i]
-                    i += 1
+        # ---------- PARAGRAPH ----------
+        elif t == "paragraph":
+            self._render_children(node)
+            self._flush()
+            self.p.newline()
+
+        # ---------- HEADINGS ----------
+        elif t == "heading":
+            level = node["attrs"]["level"]
+            self._flush()
+
+            if level == 1:
+                self.p.hr()
+                self.p.set_align("center")
+                self.p.bold(True)
+                self.p.size(2, 2)
+
+            elif level == 2:
+                self.p.bold(True)
+                self.p.size(2, 1)
+
             else:
-                if code:
-                    buffer += f"[{text[i]}]"
-                else:
-                    buffer += text[i]
-                i += 1
+                self.p.bold(True)
 
-        flush_buffer()
-        self.p.newline()  # ensure paragraph spacing after last inline
+            self._render_children(node)
+            self._flush()
 
-    def thematic_break(self):
-        self.p.hr()
-        return ""
+            if level <= 2:
+                self.p.hr()
 
-    # Table building
-    def table_head(self, text):
-        self._in_header = True
-        return text
+            self.p.size(1, 1)
+            self.p.bold(False)
+            self.p.set_align("left")
+            self.p.newline()
 
-    def table_body(self, text):
-        self._in_header = False
-        return text
+        # ---------- CODE BLOCK ----------
+        elif t == "block_code":
+            self._flush()
+            self.p.hr()
+            for line in node["raw"].splitlines():
+                self.p.wrapped_text(line)
+            self.p.hr()
 
-    def table_row(self, content):
-        if self._in_header:
-            self._header.append(self._current_row)
+        # ---------- HR ----------
+        elif t == "thematic_break":
+            self._flush()
+            self.p.hr()
+
+        # ---------- LIST ----------
+        elif t == "list":
+            for item in node["children"]:
+                self._render_node(item)
+
+        elif t == "list_item":
+            self._flush()
+            prev_buffer = self.buffer
+            self.buffer = ""
+
+            self._render_children(node)
+            content = self.buffer.strip()
+            self.buffer = prev_buffer
+
+            wrapped = textwrap.wrap(content, width=PRINTER_CHAR_WIDTH - 2)
+
+            if wrapped:
+                self.p.raw_line("• " + wrapped[0])
+                for line in wrapped[1:]:
+                    self.p.raw_line("  " + line)
+
+        # ---------- TABLE ----------
+        elif t == "table":
+            self._flush()
+
+            header = []
+            body = []
+
+            for child in node["children"]:
+                if child["type"] == "table_head":
+                    header = self._extract_table(child)
+                elif child["type"] == "table_body":
+                    body = self._extract_table(child)
+
+            self._render_table(header, body)
+
+        # ---------- FALLBACK ----------
         else:
-            self._body.append(self._current_row)
-        self._current_row = []
-        return content
+            # ignore unknown nodes safely
+            pass
 
-    def table_cell(self, content, align=None, head=False):
-        self._current_row.append(content.strip())
-        return content
+    # ---------- TABLE HELPERS ----------
 
-    def table(self, header):
-        self._render_table(self._header, self._body)
-        # reset state
-        self._header = []
-        self._body = []
-        self._current_row = []
-        return ""
+    def _extract_table(self, node):
+        rows = []
+        for row in node["children"]:
+            r = []
+            for cell in row["children"]:
+                self.buffer = ""
+                self._render_children(cell)
+                r.append(self.buffer.strip())
+            rows.append(r)
+        return rows
 
-    # Table rendering
     def _render_table(self, header, body):
         rows = header + body
         if not rows:
-            return ""
+            return
 
         col_count = max(len(r) for r in rows)
 
-        # Normalize row lengths
         for r in rows:
             while len(r) < col_count:
                 r.append("")
 
         col_info = analyze_decimal_columns(rows, col_count)
 
-        # Add spacing between columns
         padding = 2
         col_width = (PRINTER_CHAR_WIDTH - (col_count - 1) * padding) // col_count
         col_widths = [col_width] * col_count
 
-        def wrap_cell(text, width):
-            return textwrap.wrap(
-                text,
-                width=width,
-                break_long_words=True,
-                break_on_hyphens=False
-            ) or [""]
-
-        # Wrap all cells
-        wrapped_rows = []
-        for row in rows:
-            wrapped_row = []
-            for i, cell in enumerate(row):
-                wrapped_row.append(wrap_cell(cell, col_widths[i]))
-            wrapped_rows.append(wrapped_row)
-
         self.p.hr()
 
-        for row_idx, row in enumerate(wrapped_rows):
-            max_height = max(len(cell) for cell in row)
+        for row_idx, row in enumerate(rows):
+            line = ""
 
-            for line_idx in range(max_height):
-                line = ""
+            for col_idx, cell in enumerate(row):
+                width = col_widths[col_idx]
+                ci = col_info[col_idx]
 
-                for col_idx, cell_lines in enumerate(row):
-                    cell = cell_lines[line_idx] if line_idx < len(cell_lines) else ""
-                    width = col_widths[col_idx]
-                    ci = col_info[col_idx]
-
-                    if is_number(cell):
-                        if ci["decimal"]:
-                            left, right = split_decimal(cell)
-                            left = left.rjust(ci["left"])
-                            right = right.ljust(ci["right"])
-                            formatted = (
-                                f"{left}.{right}" if ci["right"] > 0 else left
-                            ).rjust(width)
-                        else:
-                            formatted = cell.rjust(width)
+                if is_number(cell):
+                    if ci["decimal"]:
+                        left, right = split_decimal(cell)
+                        left = left.rjust(ci["left"])
+                        right = right.ljust(ci["right"])
+                        formatted = f"{left}.{right}".rjust(width)
                     else:
-                        formatted = cell.ljust(width)
+                        formatted = cell.rjust(width)
+                else:
+                    formatted = cell.ljust(width)
 
-                    line += formatted
+                line += formatted
+                if col_idx < col_count - 1:
+                    line += " " * padding
 
-                    # add spacing between columns (except last)
-                    if col_idx < col_count - 1:
-                        line += " " * padding
+            self.p.raw_line(line)
 
-                # CRITICAL: no wrapping here
-                self.p.raw_line_no_wrap(line)
-
-            # Draw separator after header
             if header and row_idx == len(header) - 1:
                 self.p.hr()
 
         self.p.hr()
-        
-    def qr(self, text):
-        # Uses your ESC/POS printer to print a QR code
-        self.p.printer.qr(text, size=6, center=True)
-        self.p.newline()
-        return ""
 
-    def barcode(self, text, type="EAN13"):
-        self.p.printer.barcode(text, type, width=2, height=100, pos='below', font='a')
-        self.p.newline()
-        return ""
 
 # ---------------------------
 # Entry Point
@@ -412,18 +318,25 @@ class EscPosRenderer(mistune.HTMLRenderer):
 
 def render_markdown(md_text, cut=False):
     printer = EscPosPrinter()
-    renderer = EscPosRenderer(printer)
+    renderer = AstPrinter(printer)
 
-    md = mistune.create_markdown(renderer=renderer, plugins=["table"])
-    md(md_text)  # Let Mistune call the renderer hooks
+    md = mistune.create_markdown(renderer=None, plugins=["table"])
+    ast = md(md_text)
+
+    renderer.render(ast)
+
+    renderer._flush()
 
     if cut:
         printer.cut()
+
     printer.close()
+
 
 def main(args=None):
     import argparse
     import os
+
     parser = argparse.ArgumentParser(description="Print Markdown to ESC/POS printer.")
     parser.add_argument("file", nargs="?", help="Markdown file")
     parser.add_argument("-c", "--cut", action="store_true")
@@ -439,6 +352,7 @@ def main(args=None):
         md = sys.stdin.read()
 
     render_markdown(md, cut=parsed.cut)
+
 
 if __name__ == "__main__":
     main()
