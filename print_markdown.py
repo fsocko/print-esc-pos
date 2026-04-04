@@ -1,8 +1,10 @@
 import sys
 import textwrap
 import printer_utils
+from printer_utils import send_raw
 import ftfy
 import re
+from print_image import print_image_cmd
 
 from marko import Markdown
 from marko.ext.gfm import GFM
@@ -89,6 +91,12 @@ class EscPosPrinter:
 
     def bold(self, on=True):
         self.printer.set(bold=on)
+        # Also enable underline 1-dot if bold
+        self.set_underline(on)
+
+    def set_underline(self, on=True):
+        data = bytes([0x1B, 0x2D, 1 if on else 0])
+        send_raw(self.printer, data)
 
     def size(self, w=1, h=1):
         self.printer.set(width=w, height=h)
@@ -111,7 +119,6 @@ class EscPosPrinter:
         self.p.newline()
 
     def barcode(self, code, code_type="EAN13"):
-        # Stub: implement printer-specific barcode
         self.set_align("center")
         self.printer.barcode(code, code_type, width=2, height=100, pos='below', font='a')
         self.newline()
@@ -149,6 +156,7 @@ class AstPrinter:
                 buf = ""
 
         while i < len(text):
+            
             if text.startswith("[qrcode:", i):
                 flush_buf()
                 end = text.find("]", i)
@@ -172,10 +180,81 @@ class AstPrinter:
                     i = end + 1
                     continue
 
-            buf += text[i]
-            i += 1
+            # --- Invert printing ---
+            elif text.startswith("[invert:", i):
+                flush_buf()
+                end = text.find("]", i)
+                if end != -1:
+                    msg = text[i+8:end].strip()
+                    # Turn invert on
+                    send_raw(self.p, bytes([0x1B, 0x7B, 1]))
+                    if msg:
+                        self.p.text(msg)
+                    # Turn invert off
+                    send_raw(self.p, bytes([0x1B, 0x7B, 0]))
+                    i = end + 1
+                    continue
 
-        flush_buf()
+            # --- Underline ---
+            elif text.startswith("[underline:", i):
+                flush_buf()
+                end = text.find("]", i)
+                if end != -1:
+                    msg = text[i+11:end].strip()
+                    # 1 = single underline
+                    send_raw(self.p, bytes([0x1B, 0x2D, 1]))
+                    if msg:
+                        self.p.text(msg + "\n")
+                    # turn underline off
+                    send_raw(self.p, bytes([0x1B, 0x2D, 0]))
+                    i = end + 1
+                    continue
+
+            elif text.startswith("[print_image:", i):
+                flush_buf()
+                end = text.find("]", i)
+                if end != -1:
+                    cmd = text[i+13:end].strip()
+                    if not cmd:
+                        i = end + 1
+                        continue
+
+                    first_space = cmd.find(" ")
+                    if first_space == -1:
+                        img_paths = cmd
+                        opts = []
+                    else:
+                        img_paths = cmd[:first_space]
+                        opts = cmd[first_space+1:].split()
+
+                    kwargs = {}
+                    for o in opts:
+                        o = o.strip()
+                        if o.startswith("scale="):
+                            kwargs["scale_width"] = int(o.split("=")[1])
+                        elif o.startswith("align="):
+                            kwargs["align"] = o.split("=")[1]
+                        elif o.startswith("width_mm="):
+                            kwargs["width_mm"] = float(o.split("=")[1])
+                        elif o.startswith("height_mm="):
+                            kwargs["height_mm"] = float(o.split("=")[1])
+                        elif o.startswith("spacing="):
+                            kwargs["spacing"] = int(o.split("=")[1])
+
+                    # Print the image(s)
+                    print_image_cmd(img_paths, **kwargs)
+
+                    # Ensure text prints on the next line
+                    self.p.newline()
+                    flush_buf()
+                    
+                    i = end + 1
+                    continue
+
+                    buf += text[i]
+                    i += 1
+
+            flush_buf()
 
     # ---------------------------
     # Plain text extractor
@@ -598,23 +677,67 @@ class AstPrinter:
 # Entry point
 # ---------------------------
 
-def render_markdown(md_text, cut=False):
+def render_markdown(md_text):
     printer = EscPosPrinter()
     renderer = AstPrinter(printer)
     md = Markdown(extensions=[GFM])
     ast = md.parse(md_text)
     renderer.render(ast)
-    if cut:
-        printer.cut()
     printer.close()
 
 def main(args=None):
     import argparse
     import os
 
-    parser = argparse.ArgumentParser(description="Print Markdown to ESC/POS printer.")
+    qr_barcode_help = """
+    Special QR/Barcode Commands in Markdown:
+      
+        # Styles
+
+        [invert:TEXT]           : Print TEXT in inverted colors")
+        [underline:TEXT]        : Print TEXT underlined (1-dot)")
+
+        # Special
+
+        [qrcode:TEXT]           : Print a QR code with TEXT
+        [barcode:CODE]          : Print a barcode with CODE (default EAN13)
+        [barcode:CODE:TYPE]     : Print a barcode with specific TYPE (EAN13, CODE128)
+
+
+        # Print Image
+
+    
+        [print_image:<path> <options>]")
+        
+        Options (space-separated, optional):")
+          scale=<1-100>   - Scale image to a percentage of printer width")
+          width_mm=<num>  - Target physical width in millimeters")
+          height_mm=<num> - Target physical height in millimeters")
+          align=<left|center|right> - Alignment of the image")
+        
+        Example: [print_image:logo.png scale=80 align=center]
+        
+        Notes:
+          - The first argument is always the path to the image file.
+          - Options are optional and can be in any order."
+          - This command works inside Markdown text interpreted by print_markdown.
+
+
+    """
+
+    parser = argparse.ArgumentParser(
+        description="Print Markdown to ESC/POS printer.",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+
     parser.add_argument("file", nargs="?", help="Markdown file")
-    parser.add_argument("-c", "--cut", action="store_true")
+
+    # Optional future flags can go here
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+
+    # Attach the extra QR/barcode help to the epilog
+    parser.epilog = qr_barcode_help
+
     parsed = parser.parse_args(args)
 
     if parsed.file:
@@ -626,7 +749,9 @@ def main(args=None):
     else:
         md = sys.stdin.read()
 
-    render_markdown(md, cut=parsed.cut)
+    render_markdown(md)
+
+
 
 if __name__ == "__main__":
     main()

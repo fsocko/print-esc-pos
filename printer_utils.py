@@ -111,6 +111,24 @@ def _discover_printer(verbose=True, stream_mode=False):
     raise PrinterError("No matching USB printer found.")
 
 
+def send_raw(printer, data: bytes): #BROKEN!
+    """
+    Send raw ESC/POS bytes to the printer.
+    Works with escpos.printer.Usb and other escpos printers.
+    """
+    # Preferred: use the _raw() method if available (all escpos printers have it)
+    if hasattr(printer, "_raw") and callable(printer._raw):
+        printer._raw(data)
+    else:
+        # Fallback for very low-level USB objects
+        if not hasattr(printer, "device"):
+            raise RuntimeError("Printer object has no _raw method and no device attribute.")
+        cfg = printer.device[0]             # first configuration
+        intf = cfg[(0, 0)]                  # first interface, alt 0
+        ep_out = intf[0]                     # first OUT endpoint
+        printer.device.write(ep_out.bEndpointAddress, data)
+
+
 def reset_printer(verbose=True):
     global _PRINTER
 

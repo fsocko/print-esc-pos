@@ -49,6 +49,13 @@ def show_all_help():
         print_image.main(["-h"])
     except SystemExit:
         pass
+
+    print("\n=== print markdown options ===")
+    try:
+        print_markdown.main(["-h"])
+    except SystemExit:
+        pass
+
     print("\n=== print_raw options ===")
     try:
         print_raw.main(["-h"])
@@ -79,7 +86,7 @@ def core_print(file=None, mode=None, cut=False, extra_args=None):
     elif mode == "markdown":
         print_markdown.main(submodule_args)
     elif mode == "image":
-        print_image.main(submodule_args)
+        print_image.main_with_args(submodule_args)
     elif mode == "raw":
         print_raw.main(submodule_args)
     else:

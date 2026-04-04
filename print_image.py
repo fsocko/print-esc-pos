@@ -1,5 +1,6 @@
 # printer/print_image.py
 from PIL import Image
+import argparse
 import warnings
 import printer_utils
 import os
@@ -47,9 +48,30 @@ def _open_image(image_input):
     else:
         raise TypeError("image_input must be a filename or PIL.Image.Image instance")
 
-def print_image(
+
+
+def combine_images_horizontally(image_paths, spacing=0):
+    imgs = [Image.open(p).convert("RGBA") for p in image_paths]  # keep alpha for pasting
+    total_width = sum(im.width for im in imgs) + spacing * (len(imgs) - 1)
+    max_height = max(im.height for im in imgs)
+
+    # Create a white RGB background
+    combined = Image.new("RGB", (total_width, max_height), color=(255, 255, 255))
+
+    x_offset = 0
+    for im in imgs:
+        if im.mode == "RGBA":
+            combined.paste(im, (x_offset, 0), im)  # use alpha as mask
+        else:
+            combined.paste(im, (x_offset, 0))
+        x_offset += im.width + spacing
+
+    return combined
+    
+
+
+def core_print_image(
     image_input,
-    cut=False,
     scale_width_percentage=None,
     align_param="left",
     target_width_mm=None,
@@ -65,7 +87,7 @@ def print_image(
     """
     try:
         # Initialize printer (respecting stream mode parameter if you use that in printer_utils)
-        printer = printer_utils.find_printer(verbose=not stream_mode)
+        printer = printer_utils.find_printer(verbose=False)
 
         img = _open_image(image_input)
         orig_width, orig_height = img.size
@@ -111,9 +133,6 @@ def print_image(
         printer.set(align=align)
         printer.image(img)
 
-        if cut:
-            printer.cut()
-
         printer.close()
         return True
 
@@ -121,30 +140,70 @@ def print_image(
         # Let caller decide how to handle exceptions; re-raise for visibility in CLI usage.
         raise
 
-def main(args=None):
-    import argparse
+
+def print_image_cmd(
+    image_paths, scale_width=None, width_mm=None, height_mm=None,
+    align="left", spacing=0, stream=False, code_args=None
+):
+
+    # Convert single string to list if needed
+    if isinstance(image_paths, str):
+        # Allow multiple paths separated by "|"
+        image_paths = image_paths.split("|")
+
+    try:
+        if len(image_paths) > 1:
+            # Combine images horizontally into one PIL.Image
+            combined = combine_images_horizontally(image_paths, spacing=spacing)
+            core_print_image(
+                combined,
+                scale_width_percentage=scale_width,
+                target_width_mm=width_mm,
+                target_height_mm=height_mm,
+                align_param=align,
+                stream_mode=stream
+            )
+        else:
+            # Single image
+            core_print_image(
+                image_paths[0],
+                scale_width_percentage=scale_width,
+                target_width_mm=width_mm,
+                target_height_mm=height_mm,
+                align_param=align,
+                stream_mode=stream
+            )
+
+        # Move cursor to new line after printing image(s)
+        printer = printer_utils.find_printer()
+
+    except Exception as e:
+        # Ensure printer is reset on error
+        printer_utils.reset_printer()
+        raise RuntimeError(f"Failed to print image(s): {e}")
+
+
+def main_with_args(argv):
     parser = argparse.ArgumentParser(description="Print image to ESC/POS printer.")
     parser.add_argument("image", help="Path to image file.")
-    parser.add_argument("-c", "--cut", action="store_true", help="Cut after printing.")
     parser.add_argument("-w", "--scale-width", type=int, dest="scale_width", help="Percentage of printer width (1-100).")
     parser.add_argument("--width-mm", type=float, dest="width_mm", help="Target physical width in millimetres.")
     parser.add_argument("--height-mm", type=float, dest="height_mm", help="Target physical height in millimetres.")
     parser.add_argument("-x", "--align", type=str, choices=["left", "center", "right", "l", "c", "r"], default="left", help="Alignment.")
-    parser.add_argument("--stream", action="store_true", help="Use stream/quiet printer initialization (internal).")
-    parsed = parser.parse_args(args)
+    parsed = parser.parse_args(argv)
 
-    # Normalize shorthand alignment options inside print_image call (function will normalize as well).
-    try:
-        print_image(
-            parsed.image,
-            cut=parsed.cut,
-            scale_width_percentage=parsed.scale_width,
-            align_param=parsed.align,
-            target_width_mm=parsed.width_mm,
-            target_height_mm=parsed.height_mm,
-            stream_mode=parsed.stream,
-        )
-        print("Image print successful.")
-    except Exception as e:
-        print(f"Failed to print image: {e}")
-        raise
+    # Call the actual printing function
+    core_print_image(
+        parsed.image,
+        scale_width_percentage=parsed.scale_width,
+        target_width_mm=parsed.width_mm,
+        target_height_mm=parsed.height_mm,
+        align_param=parsed.align,
+        stream_mode=False
+    )
+
+def main():
+    main_with_args(sys.argv[1:])
+
+if __name__ == "__main__":
+    main()
