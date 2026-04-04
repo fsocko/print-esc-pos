@@ -5,16 +5,10 @@ import ftfy
 import re
 
 from marko import Markdown
-from marko.ext import gfm
-from marko.block import Heading, Paragraph, List, ListItem, FencedCode, ThematicBreak
-from marko.inline import Emphasis, CodeSpan, LineBreak, AutoLink, Link
-
-
-from marko import Markdown
-from marko.block import Heading, Paragraph, List, ListItem, FencedCode, ThematicBreak
-from marko.ext import gfm
+from marko.ext.gfm import GFM
 
 PRINTER_CHAR_WIDTH = printer_utils.PRINTER_CHAR_WIDTH
+DEBUG_AST = False
 
 # ---------------------------
 # Helpers
@@ -36,7 +30,11 @@ def analyze_decimal_columns(rows, col_count):
         right_max = 0
         has_decimal = False
         for row in rows:
-            cell = row[col].strip()
+            cell_node = row[col]
+            text = getattr(cell_node, "children", str(cell_node))
+            if isinstance(text, list):
+                text = "".join(str(c.children) if hasattr(c, "children") else str(c) for c in text)
+            cell = text.strip()
             if is_number(cell):
                 left, right = split_decimal(cell)
                 left_max = max(left_max, len(left))
@@ -45,17 +43,6 @@ def analyze_decimal_columns(rows, col_count):
                     has_decimal = True
         col_info.append({"left": left_max, "right": right_max, "decimal": has_decimal})
     return col_info
-
-def _text(node):
-    """
-    Recursively extract text from a node.
-    Leaf nodes are just strings in Marko 2.2.2.
-    """
-    if isinstance(node, str):
-        return node
-    if hasattr(node, "children"):
-        return "".join(_text(c) for c in node.children)
-    return str(getattr(node, "children", ""))
 
 # ---------------------------
 # ESC/POS Printer Wrapper
@@ -85,7 +72,7 @@ class EscPosPrinter:
         wrapped = textwrap.wrap(
             txt,
             width=PRINTER_CHAR_WIDTH - indent,
-            break_long_words=True,
+            break_long_words=False,
             break_on_hyphens=False
         ) or [""]
 
@@ -103,9 +90,6 @@ class EscPosPrinter:
     def bold(self, on=True):
         self.printer.set(bold=on)
 
-    def font(self, font):
-        self.printer.set(font=font)
-
     def size(self, w=1, h=1):
         self.printer.set(width=w, height=h)
 
@@ -113,12 +97,21 @@ class EscPosPrinter:
         self.raw_line("-" * PRINTER_CHAR_WIDTH)
 
     def qr(self, text):
+        # Stub: implement printer-specific QR code
         self.set_align("center")
         self.printer.qr(text, size=8)
         self.newline()
         self.set_align("left")
+        
+    def draw_table_border(self, col_widths):
+        self.p.write("+")
+        for w in col_widths:
+            self.p.write("-" * (w + 2))
+            self.p.write("+")
+        self.p.newline()
 
     def barcode(self, code, code_type="EAN13"):
+        # Stub: implement printer-specific barcode
         self.set_align("center")
         self.printer.barcode(code, code_type, width=2, height=100, pos='below', font='a')
         self.newline()
@@ -129,11 +122,9 @@ class EscPosPrinter:
 
     def close(self):
         self.printer.close()
-        
-    
 
 # ---------------------------
-# AST Renderer
+# AST Renderer (Marko)
 # ---------------------------
 
 class AstPrinter:
@@ -141,22 +132,15 @@ class AstPrinter:
         self.p = printer
         self.bold = False
         self.italic = False
-        self.buffer = ""
 
-    # --- Inline commands QR/Barcode ---
-    def _append(self, text):
-        if text:
-            self.buffer += text
+    # ---------------------------
+    # Streaming text writer
+    # ---------------------------
 
-    def _flush(self):
-        if not self.buffer:
-            return
-        self._print_with_commands(self.buffer)
-        self.buffer = ""
-
-    def _print_with_commands(self, text):
+    def _write_text(self, text):
         i = 0
         buf = ""
+
         def flush_buf():
             nonlocal buf
             if buf:
@@ -174,6 +158,7 @@ class AstPrinter:
                         self.p.qr(qr)
                     i = end + 1
                     continue
+
             elif text.startswith("[barcode:", i):
                 flush_buf()
                 end = text.find("]", i)
@@ -186,144 +171,284 @@ class AstPrinter:
                         self.p.barcode(code, code_type)
                     i = end + 1
                     continue
+
             buf += text[i]
             i += 1
+
         flush_buf()
-        
-    def _text(self, node):
-        """
-        Recursively extract text from a node.
-        """
-        if isinstance(node, str):
-            return node
-        if hasattr(node, "children"):
-            return "".join(self._text(c) for c in node.children)
-        return str(getattr(node, "children", ""))
 
-    # --- Node traversal ---
+    # ---------------------------
+    # Plain text extractor
+    # ---------------------------
+
+    def _capture_text(self, node):
+        parts = []
+
+        def walk(n):
+            t = n.__class__.__name__
+            if t == "RawText":
+                parts.append(n.children)
+            else:
+                for c in getattr(n, "children", []):
+                    walk(c)
+
+        walk(node)
+        return "".join(parts).strip()
+
+    # ---------------------------
+    # Segment extractor for inline formatting
+    # ---------------------------
+
+    def _collect_segments(self, node, bold=False, italic=False):
+        segments = []
+
+        def walk(n, b, i):
+            t = n.__class__.__name__
+
+            if t == "RawText":
+                segments.append((n.children, b, i))
+
+            elif t == "Strong":
+                for c in n.children:
+                    walk(c, True, i)
+
+            elif t == "Emphasis":
+                for c in n.children:
+                    walk(c, b, True)
+
+            elif t == "CodeSpan":
+                segments.append((f"[{n.children}]", b, i))
+
+            elif t == "Link":
+                text = self._capture_text(n)
+                segments.append((f"{text} ({n.dest})", b, i))
+
+            elif hasattr(n, "children"):
+                for c in n.children:
+                    walk(c, b, i)
+
+        walk(node, bold, italic)
+        return segments
+
+    # ---------------------------
+    # Wrap segments
+    # ---------------------------
+
+    def _wrap_segments(self, segments, width):
+        lines = []
+        current = []
+        length = 0
+
+        for text, b, i in segments:
+            words = text.split(" ")
+
+            for w_idx, word in enumerate(words):
+                part = word
+                if w_idx < len(words) - 1:
+                    part += " "
+
+                if length + len(part) > width and current:
+                    lines.append(current)
+                    current = []
+                    length = 0
+
+                current.append((part, b, i))
+                length += len(part)
+
+        if current:
+            lines.append(current)
+
+        return lines or [[]]
+
+    # ---------------------------
+    # Render a segment line with alignment
+    # ---------------------------
+
+    def _render_segment_line(self, segments, width, align):
+        text_len = sum(len(t) for t, _, _ in segments)
+        text_len = min(text_len, width)
+
+        if align == "right":
+            pad_left = width - text_len
+            pad_right = 0
+        elif align == "center":
+            pad_left = (width - text_len) // 2
+            pad_right = width - text_len - pad_left
+        else:
+            pad_left = 0
+            pad_right = width - text_len
+
+        line = []
+
+        if pad_left > 0:
+            line.append((" " * pad_left, False, False))
+
+        line.extend(segments)
+
+        if pad_right > 0:
+            line.append((" " * pad_right, False, False))
+
+        for txt, b, i in line:
+            self.p.set_style(b, i)
+            self.p.write(txt)
+
+    # ---------------------------
+    # Node traversal
+    # ---------------------------
+
     def _node(self, node):
-        node_type = node.__class__.__name__
+        t = node.__class__.__name__
 
-        # --- Inline nodes ---
-        if isinstance(node, str):
-            self._append(_text(node))
-            return
+        # --- Inline ---
+        if t == "RawText":
+            self._write_text(node.children)
 
-        if node_type == "Strong":
+        elif t == "CodeSpan":
+            self._write_text(f"[{node.children}]")
+
+        elif t == "LineBreak":
+            self.p.newline()
+
+        elif t == "Strong":
             prev = self.bold
             self.bold = True
-            for c in getattr(node, "children", []):
+            for c in node.children:
                 self._node(c)
             self.bold = prev
 
-        if node_type == "Emphasis":
+        elif t == "Emphasis":
             prev = self.italic
             self.italic = True
-            for c in getattr(node, "children", []):
+            for c in node.children:
                 self._node(c)
             self.italic = prev
-            
-        if node_type == "CodeSpan":
-            self._append(f"[{_text(node)}]")
-            return
-        if node_type == "LineBreak":
-            self._flush()
-            self.p.newline()
-            return
 
-        # --- Block nodes ---
-        if node_type == "Paragraph":
-            self._append(_text(node))
-            self._flush()
+        # --- Blocks ---
+        elif t == "Paragraph":
+            for c in node.children:
+                self._node(c)
             self.p.newline()
-        elif node_type == "Heading":
-            level = getattr(node, "level", 1)
-            self._flush()
-            text = self._text(node)
-            
+
+        elif t == "Heading":
+            level = node.level
+            text = self._capture_text(node)
+
             if level == 1:
                 self.p.hr()
                 self.p.set_align("center")
                 self.p.bold(True)
-                self.p.size(2,2)
+                self.p.size(2, 2)
                 self.p.wrapped_text(text.upper())
                 self.p.hr()
+
             elif level == 2:
-                self.p.wrapped_text("\n")
+                self.p.newline(2)
                 self.p.bold(True)
-                self.p.size(2,1)
+                self.p.size(2, 1)
                 self.p.wrapped_text(text.upper())
                 self.p.hr()
+
             elif level == 3:
                 self.p.bold(True)
-                self.p.size(1,1)
+                self.p.size(1, 1)
                 self.p.wrapped_text(text)
-            else:
-                # Levels 4–6
-                self.p.bold(True)
-                self.p.size(1,1)
-                prefix = {4:"# ",5:"- ",6:"  "}.get(level, "")
-                self.p.wrapped_text(f"{prefix}{text}")
-            self.p.size(1,1)
+
+            elif level == 4:
+                self.p.wrapped_text(f"# {text}")
+
+            elif level == 5:
+                self.p.wrapped_text(f"- {text}")
+
+            elif level == 6:
+                self.p.wrapped_text(f"  {text}")
+
+            self.p.size(1, 1)
             self.p.bold(False)
             self.p.set_align("left")
             self.p.newline()
-        elif node_type == "FencedCode":
-            self._flush()
+
+        elif t == "FencedCode":
             self.p.hr()
-            code_text = _text(node)
-            for line in code_text.splitlines():
+
+            content = node.children
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                parts = []
+                for c in content:
+                    if hasattr(c, "children"):
+                        parts.append(str(c.children))
+                    else:
+                        parts.append(str(c))
+                text = "".join(parts)
+            else:
+                text = str(content)
+
+            for line in text.splitlines():
                 self.p.wrapped_text(line)
+
             self.p.hr()
-        elif node_type == "ThematicBreak":
-            self._flush()
+
+        elif t == "ThematicBreak":
             self.p.hr()
-        elif node_type == "List":
-            for item in getattr(node, "children", []):
+
+        elif t == "List":
+            for item in node.children:
                 self._node(item)
-        elif node_type == "ListItem":
+
+        elif t == "Link":
+            text = self._capture_text(node)
+            url = node.dest
+            self._write_text(f"{text} ({url})")
+
+        elif t == "AutoLink":
+            self._write_text(node.dest)
+
+        elif t == "ListItem":
             bullet = "• "
             indent = len(bullet)
-            lines = []
-            # Capture the text of children without printing
-            for c in getattr(node, "children", []):
-                lines.append(self._text(c))
-            wrapped_lines = textwrap.wrap(" ".join(lines), width=PRINTER_CHAR_WIDTH - indent)
-            for i, line in enumerate(wrapped_lines):
-                if i == 0:
-                    self.p.raw_line(bullet + line)
-                else:
-                    self.p.raw_line(" " * indent + line)
-            self._flush()
+
+            segments = self._collect_segments(node)
+            wrapped = self._wrap_segments(segments, PRINTER_CHAR_WIDTH - indent)
+
+            for i, line in enumerate(wrapped):
+                prefix = bullet if i == 0 else " " * indent
+                self.p.write(prefix)
+                self._render_segment_line(line, PRINTER_CHAR_WIDTH - indent, "left")
+                self.p.newline()
+
             self.p.newline()
-        elif node_type in ("Table", "TableBlock"):
-            self._flush()
-            # header
-            header = []
-            if hasattr(node, "header") and node.header:
-                header_row = [_text(c) for c in getattr(node.header, "children", [])]
-                header.append(header_row)
-            # body
-            body = []
-            for row in getattr(node, "children", []):
-                # skip header row if already included
-                if getattr(row, "is_header", False):
-                    continue
-                body_row = [_text(c) for c in getattr(row, "children", [])]
-                body.append(body_row)
-            self._render_table(header, body)
 
-    # --- Render AST ---
-    def render(self, ast):
-        if hasattr(ast, "children"):
-            for node in ast.children:
-                self._node(node)
-        else:
-            self._node(ast)
-        self._flush()
+        elif t in ("Table", "TableBlock"):
+            self._render_marko_table(node, borders=True)
 
-    # --- Table rendering ---
-    def _render_table(self, header, body):
+        elif hasattr(node, "children"):
+            for c in node.children:
+                self._node(c)
+
+    # ---------------------------
+    # Table rendering
+    # ---------------------------
+
+    def _log_table(self, col_widths, alignments):
+        print("TABLE DEBUG")
+        print("Widths:", col_widths)
+        print("Align :", alignments)
+    
+    def _render_marko_table(self, node, borders=True, truncate_fallback=True):
+        header = []
+        body = []
+        alignments = getattr(node, "align", None)
+
+        # Extract rows
+        if hasattr(node, "header") and node.header:
+            header.append([c for c in node.header.children])
+
+        for row in getattr(node, "children", []):
+            if getattr(row, "is_header", False):
+                continue
+            body.append([c for c in row.children])
+
         if not header and not body:
             return
 
@@ -331,83 +456,156 @@ class AstPrinter:
             max(len(r) for r in header) if header else 0,
             max(len(r) for r in body) if body else 0
         )
-        for r in header:
-            while len(r) < col_count:
-                r.append("")
-        for r in body:
-            while len(r) < col_count:
-                r.append("")
 
-        padding = 2
-        col_width = (PRINTER_CHAR_WIDTH - (col_count - 1) * padding) // col_count
+        # Normalize alignments
+        norm_align = []
+        for i in range(col_count):
+            if alignments and i < len(alignments):
+                a = alignments[i]
+                norm_align.append(a if a in ("left", "center", "right") else None)
+            else:
+                norm_align.append(None)
 
-        col_info = analyze_decimal_columns(header + body, col_count)
+        # Compute column widths
+        col_widths = []
+        for col in range(col_count):
+            max_len = 0
+            for row in header + body:
+                if col >= len(row):
+                    continue
+                segs = self._collect_segments(row[col])
+                text = "".join(t for t, _, _ in segs)
+                max_len = max(max_len, len(text))
+            col_widths.append(min(max_len, 30))  # cap width
 
-        # Print header
+        # Overflow handling
+        total_width = sum(col_widths) + (col_count - 1)  # only separators count
+
+        if total_width > PRINTER_CHAR_WIDTH:
+            if truncate_fallback:
+                self.p.bold(True)
+                self.p.wrapped_text("TABLE TRUNCATED")
+                self.p.bold(False)
+
+                scale = (PRINTER_CHAR_WIDTH - (col_count - 1)) / sum(col_widths)
+                col_widths = [max(5, int(w * scale)) for w in col_widths]
+            else:
+                return
+
+        # Border drawing
+        def draw_border():
+            if not borders:
+                return
+            for i, w in enumerate(col_widths):
+                self.p.write("-" * w)
+                if i < len(col_widths) - 1:
+                    self.p.write("+")
+            self.p.newline()
+
+        # Render table
+        draw_border()
         if header:
-            wrapped_header = []
-            max_lines = 0
-            for col_idx in range(col_count):
-                cell_text = header[0][col_idx] if col_idx < len(header[0]) else ""
-                wrapped = textwrap.wrap(cell_text, width=col_width) or [""]
-                wrapped_header.append(wrapped)
-                max_lines = max(max_lines, len(wrapped))
-            for i in range(max_lines):
-                line = ""
-                for col_idx, col_lines in enumerate(wrapped_header):
-                    cell = col_lines[i] if i < len(col_lines) else ""
-                    line += cell.ljust(col_width)
-                    if col_idx < col_count - 1:
-                        line += " " * padding
-                self.p.raw_line_no_wrap(line)
-            self.p.hr()
+            self._render_row(header[0], col_widths, norm_align, borders)
+            draw_border()
 
-        # Print body
         for row in body:
-            wrapped_cols = []
-            max_lines = 0
-            for col_idx, cell in enumerate(row):
-                wrapped = textwrap.wrap(cell, width=col_width) or [""]
-                wrapped_cols.append(wrapped)
-                max_lines = max(max_lines, len(wrapped))
-            for i in range(max_lines):
-                line = ""
-                for col_idx, col_lines in enumerate(wrapped_cols):
-                    cell_text = col_lines[i] if i < len(col_lines) else ""
-                    # alignment
-                    align = "left"
-                    if header:
-                        # Try to use alignment from the first header cell
-                        header_node = node.header.children[col_idx] if col_idx < len(node.header.children) else None
-                        if header_node and getattr(header_node, "align", None):
-                            align = header_node.align
-                    if align == "right":
-                        cell_text = cell_text.rjust(col_width)
-                    else:
-                        cell_text = cell_text.ljust(col_width)
-                    line += cell_text
-                    if col_idx < col_count - 1:
-                        line += " " * padding
-                self.p.raw_line_no_wrap(line)
-        self.p.hr()
+            self._render_row(row, col_widths, norm_align, borders)
 
+        draw_border()
+
+        if DEBUG_AST:
+            self._log_table(col_widths, norm_align)
+
+
+
+    def _render_row(self, row_nodes, col_widths, alignments, borders):
+        col_count = len(col_widths)
+
+        wrapped_cols = []
+        max_lines = 0
+
+        # Wrap all columns
+        for col_idx in range(col_count):
+            if col_idx < len(row_nodes):
+                segments = self._collect_segments(row_nodes[col_idx])
+            else:
+                segments = []
+
+            wrapped = self._wrap_segments(segments, col_widths[col_idx])
+            wrapped_cols.append(wrapped)
+            max_lines = max(max_lines, len(wrapped))
+
+        # Normalize height
+        for col_idx in range(col_count):
+            while len(wrapped_cols[col_idx]) < max_lines:
+                wrapped_cols[col_idx].append([])
+
+        # Render lines
+        for line_idx in range(max_lines):
+            for col_idx in range(col_count):
+                segs = wrapped_cols[col_idx][line_idx]
+                width = col_widths[col_idx]
+
+                align_mode = alignments[col_idx]
+
+                # Auto-align numbers ONLY if no explicit alignment
+                cell_text = "".join(t for t, _, _ in segs).strip()
+                if align_mode is None:
+                    align_mode = "right" if is_number(cell_text) else "left"
+
+                # CONTENT (exact width, no extra padding)
+                text = "".join(t for t, _, _ in segs)
+                text = ftfy.fix_text(text)
+
+                if len(text) > width:
+                    text = text[:width]
+
+                if align_mode == "right":
+                    text = text.rjust(width)
+                elif align_mode == "center":
+                    text = text.center(width)
+                else:
+                    text = text.ljust(width)
+
+                self.p.write(text)
+
+                # Internal separator
+                if col_idx < col_count - 1:
+                    self.p.write("|")
+
+            self.p.newline()
+
+    # ---------------------------
+    # Render entry
+    # ---------------------------
+
+    def render(self, ast):
+        if DEBUG_AST:
+            self._debug_node(ast)
+        for node in ast.children:
+            self._node(node)
+
+    def _debug_node(self, node, depth=0):
+        indent = "  " * depth
+        print(f"{indent}{node.__class__.__name__}")
+        for c in getattr(node, "children", []):
+            if hasattr(c, "__class__"):
+                self._debug_node(c, depth + 1)
+            else:
+                print(f"{indent}  {repr(c)}")
 
 # ---------------------------
-# Entry Point
+# Entry point
 # ---------------------------
 
 def render_markdown(md_text, cut=False):
     printer = EscPosPrinter()
     renderer = AstPrinter(printer)
-
-    md = Markdown(extensions=["gfm"])
+    md = Markdown(extensions=[GFM])
     ast = md.parse(md_text)
-
     renderer.render(ast)
-
     if cut:
         printer.cut()
-
     printer.close()
 
 def main(args=None):
@@ -423,12 +621,12 @@ def main(args=None):
         if not os.path.exists(parsed.file):
             print(f"File not found: {parsed.file}")
             sys.exit(1)
-        with open(parsed.file,"r",encoding="utf-8") as f:
-            md=f.read()
+        with open(parsed.file, "r", encoding="utf-8") as f:
+            md = f.read()
     else:
-        md=sys.stdin.read()
+        md = sys.stdin.read()
 
     render_markdown(md, cut=parsed.cut)
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
