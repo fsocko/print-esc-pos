@@ -110,6 +110,27 @@ def _discover_printer(verbose=True, stream_mode=False):
 
     raise PrinterError("No matching USB printer found.")
 
+def reset_formatting(printer=None):
+    if printer is None:
+        printer = find_printer()
+    init_printer_state(printer)
+
+def init_printer_state(printer):
+    """
+    Full ESC/POS reset + canonical defaults
+    """
+    printer._raw(b'\x1b\x40')  # ESC @
+
+    # normalize state explicitly
+    printer.set(
+        align='left',
+        bold=False,
+        width=1,
+        height=1
+    )
+    # underline off
+    send_raw(printer, b'\x1b\x2d\x00')
+
 
 def send_raw(printer, data: bytes): #BROKEN!
     """

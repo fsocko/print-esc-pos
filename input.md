@@ -116,6 +116,16 @@ Some text before list:
 Ending paragraph to ensure spacing works correctly.
 
 
+## Image test
+
+### Print an image
+
+[print_image:images/smile.png|images/smile.png|images/smile.png scale=90 align=left spacing=5] # Start printing text again.
+
+[invert:### Text Continues H3]
+
+
+
 
 ## QR and BAR codes
 

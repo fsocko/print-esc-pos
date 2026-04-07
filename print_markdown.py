@@ -9,8 +9,9 @@ from print_image import print_image_cmd
 from marko import Markdown
 from marko.ext.gfm import GFM
 
-PRINTER_CHAR_WIDTH = printer_utils.PRINTER_CHAR_WIDTH
-DEBUG_AST = False
+PRINTER_CHAR_WIDTH  = printer_utils.PRINTER_CHAR_WIDTH
+DEBUG_AST           = False
+TABLE_BORDERS       = True
 
 # ---------------------------
 # Helpers
@@ -91,8 +92,6 @@ class EscPosPrinter:
 
     def bold(self, on=True):
         self.printer.set(bold=on)
-        # Also enable underline 1-dot if bold
-        self.set_underline(on)
 
     def set_underline(self, on=True):
         data = bytes([0x1B, 0x2D, 1 if on else 0])
@@ -143,118 +142,61 @@ class AstPrinter:
     # ---------------------------
     # Streaming text writer
     # ---------------------------
-
     def _write_text(self, text):
-        i = 0
-        buf = ""
+        import re
 
-        def flush_buf():
-            nonlocal buf
-            if buf:
+        # Only inline-safe commands (NO print_image here)
+        pattern = re.compile(
+            r'\[(qrcode|barcode|underline|invert):([^\]]*)\]'
+        )
+
+        pos = 0
+
+        for match in pattern.finditer(text):
+            start, end = match.span()
+
+            # ---- Plain text before command ----
+            if start > pos:
+                segment = text[pos:start]
+                if segment:
+                    self.p.set_style(self.bold, self.italic)
+                    self.p.write(segment)
+
+            cmd = match.group(1)
+            content = match.group(2).strip()
+
+            # ---- Commands ----
+            if cmd == "qrcode":
+                if content:
+                    self.p.qr(content)
+
+            elif cmd == "barcode":
+                if content:
+                    parts = content.split(":")
+                    code = parts[0]
+                    code_type = parts[1].upper() if len(parts) > 1 else "EAN13"
+                    self.p.barcode(code, code_type)
+
+            elif cmd == "underline":
+                send_raw(self.p.printer, b'\x1b\x2d\x01')  # ON
+                if content:
+                    self.p.write(content)
+                send_raw(self.p.printer, b'\x1b\x2d\x00')  # OFF
+
+            elif cmd == "invert":
+                send_raw(self.p.printer, b'\x1b\x7b\x01')  # ON
+                if content:
+                    self.p.write(content)
+                send_raw(self.p.printer, b'\x1b\x7b\x00')  # OFF
+
+            pos = end
+
+        # ---- Remaining text ----
+        if pos < len(text):
+            tail = text[pos:]
+            if tail:
                 self.p.set_style(self.bold, self.italic)
-                self.p.write(buf)
-                buf = ""
-
-        while i < len(text):
-            
-            if text.startswith("[qrcode:", i):
-                flush_buf()
-                end = text.find("]", i)
-                if end != -1:
-                    qr = text[i+8:end].strip()
-                    if qr:
-                        self.p.qr(qr)
-                    i = end + 1
-                    continue
-
-            elif text.startswith("[barcode:", i):
-                flush_buf()
-                end = text.find("]", i)
-                if end != -1:
-                    content = text[i+9:end].strip()
-                    if content:
-                        parts = content.split(":")
-                        code = parts[0]
-                        code_type = parts[1].upper() if len(parts) > 1 else "EAN13"
-                        self.p.barcode(code, code_type)
-                    i = end + 1
-                    continue
-
-            # --- Invert printing ---
-            elif text.startswith("[invert:", i):
-                flush_buf()
-                end = text.find("]", i)
-                if end != -1:
-                    msg = text[i+8:end].strip()
-                    # Turn invert on
-                    send_raw(self.p, bytes([0x1B, 0x7B, 1]))
-                    if msg:
-                        self.p.text(msg)
-                    # Turn invert off
-                    send_raw(self.p, bytes([0x1B, 0x7B, 0]))
-                    i = end + 1
-                    continue
-
-            # --- Underline ---
-            elif text.startswith("[underline:", i):
-                flush_buf()
-                end = text.find("]", i)
-                if end != -1:
-                    msg = text[i+11:end].strip()
-                    # 1 = single underline
-                    send_raw(self.p, bytes([0x1B, 0x2D, 1]))
-                    if msg:
-                        self.p.text(msg + "\n")
-                    # turn underline off
-                    send_raw(self.p, bytes([0x1B, 0x2D, 0]))
-                    i = end + 1
-                    continue
-
-            elif text.startswith("[print_image:", i):
-                flush_buf()
-                end = text.find("]", i)
-                if end != -1:
-                    cmd = text[i+13:end].strip()
-                    if not cmd:
-                        i = end + 1
-                        continue
-
-                    first_space = cmd.find(" ")
-                    if first_space == -1:
-                        img_paths = cmd
-                        opts = []
-                    else:
-                        img_paths = cmd[:first_space]
-                        opts = cmd[first_space+1:].split()
-
-                    kwargs = {}
-                    for o in opts:
-                        o = o.strip()
-                        if o.startswith("scale="):
-                            kwargs["scale_width"] = int(o.split("=")[1])
-                        elif o.startswith("align="):
-                            kwargs["align"] = o.split("=")[1]
-                        elif o.startswith("width_mm="):
-                            kwargs["width_mm"] = float(o.split("=")[1])
-                        elif o.startswith("height_mm="):
-                            kwargs["height_mm"] = float(o.split("=")[1])
-                        elif o.startswith("spacing="):
-                            kwargs["spacing"] = int(o.split("=")[1])
-
-                    # Print the image(s)
-                    print_image_cmd(img_paths, **kwargs)
-
-                    # Ensure text prints on the next line
-                    self.p.newline()
-                    flush_buf()
-                    
-                    i = end + 1
-                    continue
-
-                    buf += text[i]
-                    i += 1
-
-            flush_buf()
+                self.p.write(tail)
 
     # ---------------------------
     # Plain text extractor
@@ -404,8 +346,55 @@ class AstPrinter:
 
         # --- Blocks ---
         elif t == "Paragraph":
-            for c in node.children:
-                self._node(c)
+            
+            import re
+            from print_image import print_image_cmd
+            import printer_utils
+
+            pattern = re.compile(r'\[print_image:([^\]]+)\]')
+
+            for child in node.children:
+
+                # Only process RawText nodes for image commands
+                if child.__class__.__name__ == "RawText":
+                    text = child.children
+                    pos = 0
+
+                    for match in pattern.finditer(text):
+                        start, end = match.span()
+
+                        # ---- TEXT BEFORE IMAGE ----
+                        if start > pos:
+                            self._write_text(text[pos:start])
+
+                        # ---- IMAGE ----
+                        content = match.group(1).strip()
+                        img_paths, kwargs = self._parse_print_image(content)
+
+                        self.p.newline(1)
+                        printer_utils.reset_formatting(self.p.printer)
+                        
+                        print_image_cmd(
+                            img_paths,
+                            printer=self.p.printer,
+                            **kwargs
+                        )
+                        
+                        printer_utils.reset_formatting(self.p.printer)
+                        self.p.printer._raw(b'\x1b\x40')  # ESC @ full reset
+                        self.p.printer.text("\n")
+                        self.p.newline(2)
+
+                        pos = end
+
+                    # ---- REMAINING TEXT ----
+                    if pos < len(text):
+                        self._write_text(text[pos:])
+
+                else:
+                    # Preserve full AST behavior for non-text nodes
+                    self._node(child)
+
             self.p.newline()
 
         elif t == "Heading":
@@ -499,11 +488,15 @@ class AstPrinter:
             self.p.newline()
 
         elif t in ("Table", "TableBlock"):
-            self._render_marko_table(node, borders=True)
+            self._render_marko_table(node, borders=TABLE_BORDERS)
 
         elif hasattr(node, "children"):
             for c in node.children:
                 self._node(c)
+                
+        if DEBUG_AST:
+    
+            print("NODE:", t)
 
     # ---------------------------
     # Table rendering
@@ -514,7 +507,7 @@ class AstPrinter:
         print("Widths:", col_widths)
         print("Align :", alignments)
     
-    def _render_marko_table(self, node, borders=True, truncate_fallback=True):
+    def _render_marko_table(self, node, borders=TABLE_BORDERS, truncate_fallback=True):
         header = []
         body = []
         alignments = getattr(node, "align", None)
@@ -672,6 +665,34 @@ class AstPrinter:
                 self._debug_node(c, depth + 1)
             else:
                 print(f"{indent}  {repr(c)}")
+
+    def _parse_print_image(self, content):
+        """
+        Parse [print_image:...] content into (paths, kwargs)
+        """
+        first_space = content.find(" ")
+
+        if first_space == -1:
+            img_paths = content
+            opts = []
+        else:
+            img_paths = content[:first_space]
+            opts = content[first_space + 1:].split()
+
+        kwargs = {}
+        for o in opts:
+            if o.startswith("scale="):
+                kwargs["scale_width"] = int(o.split("=")[1])
+            elif o.startswith("align="):
+                kwargs["align"] = o.split("=")[1]
+            elif o.startswith("width_mm="):
+                kwargs["width_mm"] = float(o.split("=")[1])
+            elif o.startswith("height_mm="):
+                kwargs["height_mm"] = float(o.split("=")[1])
+            elif o.startswith("spacing="):
+                kwargs["spacing"] = int(o.split("=")[1])
+
+        return img_paths, kwargs
 
 # ---------------------------
 # Entry point

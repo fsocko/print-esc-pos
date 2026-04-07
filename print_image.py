@@ -1,26 +1,26 @@
-# printer/print_image.py
 from PIL import Image
-import argparse
 import warnings
-import printer_utils
 import os
+import printer_utils
 
-# Printer constants (kept in sync with your original file)
-PRINTER_CHAR_WIDTH = printer_utils.PRINTER_CHAR_WIDTH
-PRINTER_WIDTH_PX = printer_utils.PRINTER_WIDTH_PX
-PRINTER_DPI = printer_utils.PRINTER_DPI
+# Printer constants
+PRINTER_CHAR_WIDTH  = printer_utils.PRINTER_CHAR_WIDTH
+PRINTER_WIDTH_PX    = printer_utils.PRINTER_WIDTH_PX
+PRINTER_DPI         = printer_utils.PRINTER_DPI
 
-# Correction multipliers for fine-tuning physical accuracy
+# Calibration
 HORIZONTAL_SCALE_CORRECTION = 1.00
-VERTICAL_SCALE_CORRECTION = 1.012  # increase height ~2% to match ruler due to calibration experiments
+VERTICAL_SCALE_CORRECTION = 1.012
+
+
+# ---------------------------
+# Helpers
+# ---------------------------
 
 def mm_to_pixels(mm, dpi=PRINTER_DPI, axis="x"):
-    """
-    Convert millimetres to pixels using printer DPI and axis-specific correction.
-    axis: "x" or "y" (horizontal/vertical).
-    """
     correction = HORIZONTAL_SCALE_CORRECTION if axis == "x" else VERTICAL_SCALE_CORRECTION
     return int((mm / 25.4) * dpi * correction)
+
 
 def _normalize_align(align_param):
     if not align_param:
@@ -32,13 +32,10 @@ def _normalize_align(align_param):
         return "center"
     if a in ("r", "right"):
         return "right"
-    # fallback
     return "left"
 
+
 def _open_image(image_input):
-    """
-    Accept either a path (str) or a PIL.Image.Image instance.
-    """
     if isinstance(image_input, str):
         if not os.path.exists(image_input):
             raise FileNotFoundError(f"Image file not found: {image_input}")
@@ -49,26 +46,32 @@ def _open_image(image_input):
         raise TypeError("image_input must be a filename or PIL.Image.Image instance")
 
 
+# ---------------------------
+# Image composition
+# ---------------------------
 
 def combine_images_horizontally(image_paths, spacing=0):
-    imgs = [Image.open(p).convert("RGBA") for p in image_paths]  # keep alpha for pasting
+    imgs = [Image.open(p).convert("RGBA") for p in image_paths]
+
     total_width = sum(im.width for im in imgs) + spacing * (len(imgs) - 1)
     max_height = max(im.height for im in imgs)
 
-    # Create a white RGB background
     combined = Image.new("RGB", (total_width, max_height), color=(255, 255, 255))
 
     x_offset = 0
     for im in imgs:
         if im.mode == "RGBA":
-            combined.paste(im, (x_offset, 0), im)  # use alpha as mask
+            combined.paste(im, (x_offset, 0), im)
         else:
             combined.paste(im, (x_offset, 0))
         x_offset += im.width + spacing
 
     return combined
-    
 
+
+# ---------------------------
+# Core printing
+# ---------------------------
 
 def core_print_image(
     image_input,
@@ -76,84 +79,106 @@ def core_print_image(
     align_param="left",
     target_width_mm=None,
     target_height_mm=None,
-    stream_mode=False,
+    printer=None,
 ):
     """
-    Print an image, supporting:
-      - physical sizing via target_width_mm/target_height_mm
-      - percentage width scaling via scale_width_percentage (1-100)
-      - auto-scaling if image too wide for PRINTER_WIDTH_PX
-      - alignment: left/center/right (or l/c/r)
+    SAFE image printing:
+    - uses shared printer instance
+    - resets ESC/POS state before printing
+    - does NOT close printer
     """
+
     try:
-        # Initialize printer (respecting stream mode parameter if you use that in printer_utils)
-        printer = printer_utils.find_printer(verbose=False)
+        if printer is None:
+            printer = printer_utils.find_printer(verbose=False)
+
+        # ---- CRITICAL: reset printer state ----
+        printer_utils.reset_formatting(printer)
 
         img = _open_image(image_input)
         orig_width, orig_height = img.size
-        aspect_ratio = orig_height / orig_width if orig_width != 0 else 1.0
+        aspect_ratio = orig_height / orig_width if orig_width else 1.0
 
-        # Resize using physical dimensions if any are provided
+        # ---- Resize logic ----
         if target_width_mm or target_height_mm:
             if target_width_mm and not target_height_mm:
                 target_width_px = mm_to_pixels(target_width_mm, axis="x")
                 target_height_px = int(target_width_px * aspect_ratio)
+
             elif target_height_mm and not target_width_mm:
                 target_height_px = mm_to_pixels(target_height_mm, axis="y")
                 target_width_px = int(target_height_px / aspect_ratio)
+
             else:
-                # both provided: use them directly (may distort if aspect differs)
                 target_width_px = mm_to_pixels(target_width_mm, axis="x")
                 target_height_px = mm_to_pixels(target_height_mm, axis="y")
 
-            if target_width_px <= 0 or target_height_px <= 0:
-                raise ValueError("Computed target pixel dimensions are invalid.")
             img = img.resize((target_width_px, target_height_px), Image.Resampling.LANCZOS)
 
-        # Fallback: percentage scale
         elif scale_width_percentage:
-            if scale_width_percentage <= 0 or scale_width_percentage > 100:
+            if not (1 <= scale_width_percentage <= 100):
                 raise ValueError("Scale percentage must be between 1 and 100.")
+
             target_width = int((scale_width_percentage / 100.0) * PRINTER_WIDTH_PX)
             target_height = int(target_width * aspect_ratio)
-            if target_width <= 0 or target_height <= 0:
-                raise ValueError("Computed target pixel dimensions are invalid.")
+
             img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
-        # Fallback: auto-scale if too wide
         elif orig_width > PRINTER_WIDTH_PX:
-            warnings.warn(
-                f"Image width {orig_width}px exceeds printer max width {PRINTER_WIDTH_PX}px. "
-                "Auto-scaling to printer width."
+            warnings.warn("Image too wide, auto-scaling.")
+            img = img.resize(
+                (PRINTER_WIDTH_PX, int(PRINTER_WIDTH_PX * aspect_ratio)),
+                Image.Resampling.LANCZOS
             )
-            img = img.resize((PRINTER_WIDTH_PX, int(PRINTER_WIDTH_PX * aspect_ratio)), Image.Resampling.LANCZOS)
 
-        # Set alignment and send image
+        # ---- Alignment AFTER reset ----
         align = _normalize_align(align_param)
         printer.set(align=align)
+
+        # ---- Print ----
         printer.image(img)
 
-        printer.close()
         return True
 
     except Exception:
-        # Let caller decide how to handle exceptions; re-raise for visibility in CLI usage.
+        printer_utils.reset_printer()
         raise
 
 
-def print_image_cmd(
-    image_paths, scale_width=None, width_mm=None, height_mm=None,
-    align="left", spacing=0, stream=False, code_args=None
-):
+# ---------------------------
+# Public command
+# ---------------------------
 
-    # Convert single string to list if needed
+def print_image_cmd(
+    image_paths,
+    scale_width=None,
+    width_mm=None,
+    height_mm=None,
+    align="left",
+    spacing=0,
+    printer=None,
+):
+    """
+    Entry point used by markdown renderer.
+
+    Guarantees:
+    - no printer reopen
+    - newline isolation
+    - safe state transitions
+    """
+
+    if printer is None:
+        printer = printer_utils.find_printer(verbose=False)
+
+    # normalize paths
     if isinstance(image_paths, str):
-        # Allow multiple paths separated by "|"
         image_paths = image_paths.split("|")
 
     try:
+        # ---- isolate from previous text ----
+        printer.text("\n")
+
         if len(image_paths) > 1:
-            # Combine images horizontally into one PIL.Image
             combined = combine_images_horizontally(image_paths, spacing=spacing)
             core_print_image(
                 combined,
@@ -161,49 +186,21 @@ def print_image_cmd(
                 target_width_mm=width_mm,
                 target_height_mm=height_mm,
                 align_param=align,
-                stream_mode=stream
+                printer=printer,
             )
         else:
-            # Single image
             core_print_image(
                 image_paths[0],
                 scale_width_percentage=scale_width,
                 target_width_mm=width_mm,
                 target_height_mm=height_mm,
                 align_param=align,
-                stream_mode=stream
+                printer=printer,
             )
 
-        # Move cursor to new line after printing image(s)
-        printer = printer_utils.find_printer()
+        # ---- isolate after image ----
+        printer.text("\n\n")
 
     except Exception as e:
-        # Ensure printer is reset on error
         printer_utils.reset_printer()
         raise RuntimeError(f"Failed to print image(s): {e}")
-
-
-def main_with_args(argv):
-    parser = argparse.ArgumentParser(description="Print image to ESC/POS printer.")
-    parser.add_argument("image", help="Path to image file.")
-    parser.add_argument("-w", "--scale-width", type=int, dest="scale_width", help="Percentage of printer width (1-100).")
-    parser.add_argument("--width-mm", type=float, dest="width_mm", help="Target physical width in millimetres.")
-    parser.add_argument("--height-mm", type=float, dest="height_mm", help="Target physical height in millimetres.")
-    parser.add_argument("-x", "--align", type=str, choices=["left", "center", "right", "l", "c", "r"], default="left", help="Alignment.")
-    parsed = parser.parse_args(argv)
-
-    # Call the actual printing function
-    core_print_image(
-        parsed.image,
-        scale_width_percentage=parsed.scale_width,
-        target_width_mm=parsed.width_mm,
-        target_height_mm=parsed.height_mm,
-        align_param=parsed.align,
-        stream_mode=False
-    )
-
-def main():
-    main_with_args(sys.argv[1:])
-
-if __name__ == "__main__":
-    main()
