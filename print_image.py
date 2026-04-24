@@ -126,8 +126,8 @@ def core_print_image(
     FORCE_FULL_WIDTH = True          # force resize to printer width
     CONTRAST_FACTOR = 1.5            # 1.5–2.5 typical
     SHARPEN = False
-    THRESHOLD = 160                 # 160–200 typical
-    ENABLE_DITHER = False           # usually False for maps/text
+    THRESHOLD = 80                   # 160–200 typical
+    ENABLE_DITHER = True             # usually False for maps/text
 
     try:
         if printer is None:
@@ -270,7 +270,7 @@ def print_image_cmd(
             )
 
         # ---- isolate after image ----
-        printer.text("\n")
+        printer.text("\n\n")
 
     except Exception as e:
         printer_utils.reset_printer()

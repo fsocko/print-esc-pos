@@ -5,6 +5,7 @@ from printer_utils import send_raw
 import ftfy
 import re
 from print_image import print_image_cmd
+from print_text import encode_and_send_line
 
 from marko import Markdown
 from marko.ext.gfm import GFM
@@ -144,28 +145,23 @@ class AstPrinter:
     # ---------------------------
     def _write_text(self, text):
         import re
+        from print_text import encode_and_send_line
 
-        # Only inline-safe commands (NO print_image here)
-        pattern = re.compile(
-            r'\[(qrcode|barcode|underline|invert):([^\]]*)\]'
-        )
+        pattern = re.compile(r'\[(qrcode|barcode|underline|invert):([^\]]*)\]')
 
         pos = 0
 
         for match in pattern.finditer(text):
             start, end = match.span()
 
-            # ---- Plain text before command ----
             if start > pos:
                 segment = text[pos:start]
                 if segment:
-                    self.p.set_style(self.bold, self.italic)
-                    self.p.write(segment)
+                    encode_and_send_line(self.p.printer, segment)
 
             cmd = match.group(1)
             content = match.group(2).strip()
 
-            # ---- Commands ----
             if cmd == "qrcode":
                 if content:
                     self.p.qr(content)
@@ -178,26 +174,23 @@ class AstPrinter:
                     self.p.barcode(code, code_type)
 
             elif cmd == "underline":
-                send_raw(self.p.printer, b'\x1b\x2d\x01')  # ON
+                send_raw(self.p.printer, b'\x1b\x2d\x01')
                 if content:
-                    self.p.write(content)
-                send_raw(self.p.printer, b'\x1b\x2d\x00')  # OFF
+                    encode_and_send_line(self.p.printer, content)
+                send_raw(self.p.printer, b'\x1b\x2d\x00')
 
             elif cmd == "invert":
-                send_raw(self.p.printer, b'\x1b\x7b\x01')  # ON
+                send_raw(self.p.printer, b'\x1b\x7b\x01')
                 if content:
-                    self.p.write(content)
-                send_raw(self.p.printer, b'\x1b\x7b\x00')  # OFF
+                    encode_and_send_line(self.p.printer, content)
+                send_raw(self.p.printer, b'\x1b\x7b\x00')
 
             pos = end
 
-        # ---- Remaining text ----
         if pos < len(text):
             tail = text[pos:]
             if tail:
-                self.p.set_style(self.bold, self.italic)
-                self.p.write(tail)
-
+                encode_and_send_line(self.p.printer, tail)
     # ---------------------------
     # Plain text extractor
     # ---------------------------

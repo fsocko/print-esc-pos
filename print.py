@@ -39,6 +39,31 @@ def detect_input_type(file_path=None):
             return "raw"
     return None
 
+def split_args(argv):
+    """
+    Extract known print.py args.
+    Everything else is forwarded untouched.
+    """
+
+    parser = argparse.ArgumentParser(add_help=False)
+
+    parser.add_argument("--mode")
+    parser.add_argument("-c", "--cut", action="store_true")
+    parser.add_argument("--help-all", action="store_true")
+
+    args, remaining = parser.parse_known_args(argv)
+
+    file = None
+    extras = []
+
+    for arg in remaining:
+        if file is None and not arg.startswith("-"):
+            file = arg
+        else:
+            extras.append(arg)
+
+    return args, file, extras
+
 def show_all_help():
     print("\n=== print_text options ===")
     try:
@@ -106,47 +131,30 @@ def core_print(file=None, mode=None, cut=False, extra_args=None):
 
 def main_with_args(argv):
 
-    parser = argparse.ArgumentParser(
-        description="Print text, images, or raw ESC/POS data."
-    )
-
-    parser.add_argument("file", nargs="?", help="File to print")
-    parser.add_argument("--mode", choices=["text", "image", "image-tile", "raw", "markdown"])
-    parser.add_argument("-c", "--cut", action="store_true")
-    parser.add_argument("--help-all", action="store_true")
-
-    args, extras = parser.parse_known_args(argv)
+    args, file, extras = split_args(argv)
 
     if args.help_all:
         show_all_help()
         return
 
-    # CLI autodetect logic
-    mode = args.mode or detect_input_type(args.file)
+    mode = args.mode or detect_input_type(file)
 
     if not mode:
         if args.cut:
-            try:
-                printer_utils.cut_paper()
-            except Exception as e:
-                print(f"Failed to cut paper: {e}")
+            printer_utils.cut_paper()
             return
         else:
+            parser = argparse.ArgumentParser()
             parser.print_help()
-            print("\nUse --help-all to see full submodule help")
             return
 
-    try:
-        core_print(
-            file=args.file,
-            mode=mode,
-            cut=args.cut,
-            extra_args=extras
-        )
-    except Exception as e:
-        print(f"Error: {e}")
-        sys.exit(1)
-                        
+    core_print(
+        file=file,
+        mode=mode,
+        cut=args.cut,
+        extra_args=extras
+    )
+                            
 def main():
     main_with_args(sys.argv[1:])            
         
