@@ -7,6 +7,7 @@ import print_image
 import print_raw
 import printer_utils
 import print_markdown
+import print_image_tile
 
 def is_image_file(path: str) -> bool:
     ext = path.lower().rsplit(".", 1)[-1]
@@ -49,6 +50,12 @@ def show_all_help():
         print_image.main(["-h"])
     except SystemExit:
         pass
+    
+    print("\n=== print_image_tile options ===")
+    try:
+        print_image_tile.main(["-h"])
+    except SystemExit:
+        pass
 
     print("\n=== print markdown options ===")
     try:
@@ -86,7 +93,9 @@ def core_print(file=None, mode=None, cut=False, extra_args=None):
     elif mode == "markdown":
         print_markdown.main(submodule_args)
     elif mode == "image":
-        print_image.main_with_args(submodule_args)
+        print_image.main(submodule_args)
+    elif mode == "image-tile":
+        print_image_tile.main(submodule_args)
     elif mode == "raw":
         print_raw.main(submodule_args)
     else:
@@ -102,7 +111,7 @@ def main_with_args(argv):
     )
 
     parser.add_argument("file", nargs="?", help="File to print")
-    parser.add_argument("--mode", choices=["text", "image", "raw", "markdown"])
+    parser.add_argument("--mode", choices=["text", "image", "image-tile", "raw", "markdown"])
     parser.add_argument("-c", "--cut", action="store_true")
     parser.add_argument("--help-all", action="store_true")
 

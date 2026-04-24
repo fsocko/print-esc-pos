@@ -1,5 +1,6 @@
+import sys
 from PIL import Image
-import warnings
+import argparse
 import os
 import printer_utils
 
@@ -44,6 +45,38 @@ def _open_image(image_input):
         return image_input
     else:
         raise TypeError("image_input must be a filename or PIL.Image.Image instance")
+    
+def pil_to_escpos_raster(img):
+    """
+    Convert 1-bit PIL image to ESC/POS GS v 0 raster format
+    """
+    if img.mode != "1":
+        raise ValueError("Image must be 1-bit")
+
+    width, height = img.size
+    width_bytes = (width + 7) // 8
+
+    pixels = img.load()
+    data = bytearray()
+
+    for y in range(height):
+        for xb in range(width_bytes):
+            byte = 0
+            for bit in range(8):
+                x = xb * 8 + bit
+                if x < width and pixels[x, y] == 0:  # black pixel
+                    byte |= (1 << (7 - bit))
+            data.append(byte)
+
+    header = bytearray([
+        0x1D, 0x76, 0x30, 0x00,
+        width_bytes & 0xFF,
+        (width_bytes >> 8) & 0xFF,
+        height & 0xFF,
+        (height >> 8) & 0xFF
+    ])
+
+    return header + data
 
 
 # ---------------------------
@@ -80,26 +113,35 @@ def core_print_image(
     target_width_mm=None,
     target_height_mm=None,
     printer=None,
+    raw_mode=False
 ):
     """
-    SAFE image printing:
-    - uses shared printer instance
-    - resets ESC/POS state before printing
-    - does NOT close printer
+    Enhanced image printing with controlled preprocessing and optional RAW mode.
     """
+
+    # ---------------------------
+    # TUNING VARIABLES
+    # ---------------------------
+    USE_RAW_MODE = raw_mode          
+    FORCE_FULL_WIDTH = True          # force resize to printer width
+    CONTRAST_FACTOR = 1.5            # 1.5–2.5 typical
+    SHARPEN = False
+    THRESHOLD = 160                 # 160–200 typical
+    ENABLE_DITHER = False           # usually False for maps/text
 
     try:
         if printer is None:
             printer = printer_utils.find_printer(verbose=False)
 
-        # ---- CRITICAL: reset printer state ----
         printer_utils.reset_formatting(printer)
 
         img = _open_image(image_input)
         orig_width, orig_height = img.size
         aspect_ratio = orig_height / orig_width if orig_width else 1.0
 
-        # ---- Resize logic ----
+        # ---------------------------
+        # RESIZE (CRITICAL)
+        # ---------------------------
         if target_width_mm or target_height_mm:
             if target_width_mm and not target_height_mm:
                 target_width_px = mm_to_pixels(target_width_mm, axis="x")
@@ -113,37 +155,63 @@ def core_print_image(
                 target_width_px = mm_to_pixels(target_width_mm, axis="x")
                 target_height_px = mm_to_pixels(target_height_mm, axis="y")
 
-            img = img.resize((target_width_px, target_height_px), Image.Resampling.LANCZOS)
+            img = img.resize((target_width_px, target_height_px), Image.Resampling.NEAREST)
 
         elif scale_width_percentage:
-            if not (1 <= scale_width_percentage <= 100):
-                raise ValueError("Scale percentage must be between 1 and 100.")
-
             target_width = int((scale_width_percentage / 100.0) * PRINTER_WIDTH_PX)
             target_height = int(target_width * aspect_ratio)
 
-            img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+            img = img.resize((target_width, target_height), Image.Resampling.NEAREST)
+
+        elif FORCE_FULL_WIDTH:
+            target_width = PRINTER_WIDTH_PX
+            target_height = int(target_width * aspect_ratio)
+
+            img = img.resize((target_width, target_height), Image.Resampling.NEAREST)
 
         elif orig_width > PRINTER_WIDTH_PX:
-            warnings.warn("Image too wide, auto-scaling.")
             img = img.resize(
                 (PRINTER_WIDTH_PX, int(PRINTER_WIDTH_PX * aspect_ratio)),
-                Image.Resampling.LANCZOS
+                Image.Resampling.NEAREST
             )
 
-        # ---- Alignment AFTER reset ----
+        # ---------------------------
+        # PREPROCESSING
+        # ---------------------------
+        from PIL import ImageEnhance, ImageFilter
+
+        img = img.convert("L")
+
+        img = ImageEnhance.Contrast(img).enhance(CONTRAST_FACTOR)
+
+        if SHARPEN:
+            img = img.filter(ImageFilter.SHARPEN)
+
+        if ENABLE_DITHER:
+            img = img.convert("1")  # PIL dithering
+        else:
+            img = img.point(lambda x: 0 if x < THRESHOLD else 255, '1')
+
+        # ---------------------------
+        # ALIGNMENT
+        # ---------------------------
         align = _normalize_align(align_param)
         printer.set(align=align)
 
-        # ---- Print ----
-        printer.image(img)
+        # ---------------------------
+        # PRINT
+        # ---------------------------
+        if USE_RAW_MODE:
+            raster = pil_to_escpos_raster(img)
+            printer._raw(raster)
+        else:
+            printer.image(img, impl='bitImageRaster')
 
         return True
 
     except Exception:
         printer_utils.reset_printer()
         raise
-
 
 # ---------------------------
 # Public command
@@ -157,6 +225,7 @@ def print_image_cmd(
     align="left",
     spacing=0,
     printer=None,
+    raw=False
 ):
     """
     Entry point used by markdown renderer.
@@ -187,6 +256,7 @@ def print_image_cmd(
                 target_height_mm=height_mm,
                 align_param=align,
                 printer=printer,
+                raw_mode=raw,
             )
         else:
             core_print_image(
@@ -196,11 +266,40 @@ def print_image_cmd(
                 target_height_mm=height_mm,
                 align_param=align,
                 printer=printer,
+                raw_mode=raw,  
             )
 
         # ---- isolate after image ----
-        printer.text("\n\n")
+        printer.text("\n")
 
     except Exception as e:
         printer_utils.reset_printer()
         raise RuntimeError(f"Failed to print image(s): {e}")
+    
+    
+def main(argv=None):
+    
+    parser = argparse.ArgumentParser(description="Print image(s) to ESC/POS thermal printer")
+    parser.add_argument( "image", help="Image path or multiple paths separated by |")
+    parser.add_argument( "--scale", type=int, help="Scale image width as percentage of printer width (1–100)")
+    parser.add_argument( "--width-mm", type=float, help="Target width in millimeters")
+    parser.add_argument( "--height-mm", type=float, help="Target height in millimeters")
+    parser.add_argument( "--align", choices=["left", "center", "right"], default="center")
+    parser.add_argument( "--spacing", type=int, default=0, help="Spacing between multiple images")
+    parser.add_argument(
+        "-r", "--raw",
+        action="store_true",
+        help="Enable raw ESC/POS raster mode"
+    )
+    
+    args = parser.parse_args(argv)
+
+    print_image_cmd(
+        image_paths=args.image,
+        scale_width=args.scale,
+        width_mm=args.width_mm,
+        height_mm=args.height_mm,
+        align=args.align,
+        spacing=args.spacing,
+        raw=args.raw
+    )
