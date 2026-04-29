@@ -140,6 +140,7 @@ class AstPrinter:
         self.bold = False
         self.italic = False
         self.indent_level = 0
+        self.list_stack = []
 
     # ---------------------------
     # Streaming text writer
@@ -496,12 +497,16 @@ class AstPrinter:
             self.p.hr()
 
         elif t == "List":
-            self.indent_level += 2
+            # Marko provides correct list type here
+            is_ordered = getattr(node, "ordered", False)
+            self.list_stack.append(is_ordered)
 
+            self.indent_level += 2
             for item in node.children:
                 self._node(item)
-
             self.indent_level -= 2
+
+            self.list_stack.pop()
 
         elif t == "Link":
             text = self._capture_text(node)
@@ -512,11 +517,11 @@ class AstPrinter:
             self._write_text(node.dest)
 
         elif t == "ListItem":
-            parent = getattr(node, "parent", None)
-            is_ordered = getattr(parent, "ordered", False)
+            # Determine list type from current list context
+            is_ordered = self.list_stack[-1] if self.list_stack else False
 
             if is_ordered:
-                # NOTE: Marko does not always expose index cleanly
+                # Marko does not reliably provide per-item numbering
                 bullet = "1. "
             else:
                 bullet = "- "
@@ -541,18 +546,17 @@ class AstPrinter:
                     first_block = False
 
                 elif ct == "List":
-                    # Nested list: move to next line cleanly
-                    self.p.write(continuation)
+                    # Nested list: ensure clean separation
                     self.p.newline()
-
                     self._node(child)
                     first_block = False
 
                 else:
-                    # Fallback block
-                    self.p.write(continuation)
+                    self.p.write(prefix if first_block else continuation)
                     self._node(child)
-                    first_block = False
+                    first_block = False  
+
+
 
         elif t in ("Table", "TableBlock"):
             self._render_marko_table(node, borders=TABLE_BORDERS)
