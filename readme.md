@@ -53,3 +53,12 @@ print API: 			http://localhost:8069/api/print
 docs:			 			http://localhost:8069/docs
 web-formatter: 	http://localhost:8069/formatter
 								(Or: http://hostname.local:8069)
+
+
+
+# Useful commands:
+
+- print contents of clipboard in MD mode:
+
+[	$echo "$(cat /dev/clipboard)" | print.py --mode markdown -c ]
+

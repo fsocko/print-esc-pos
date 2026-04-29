@@ -295,6 +295,19 @@ class AstPrinter:
 
             self.p.newline()
 
+
+    # ---------------------------
+    # List alignment
+    # ---------------------------        
+    def _current_counter_width(self):
+        # width of largest number in current list level
+        if not self.list_counters:
+            return 2
+        n = self.list_counters[-1]
+        if n is None:
+            return 0
+        return len(str(max(n, 1)))
+
     # ---------------------------
     # Render a segment line with alignment
     # ---------------------------
@@ -501,20 +514,33 @@ class AstPrinter:
         elif t == "List":
             is_ordered = getattr(node, "ordered", False)
 
-            self.list_stack.append(is_ordered)
+            counter_state = {
+                "ordered": is_ordered,
+                "counter": 0,
+                "max_digits": 1
+            }
 
-            if is_ordered:
-                self.list_counters.append(0)   # start numbering for this level
-            else:
-                self.list_counters.append(None)
+            self.list_stack.append(counter_state)
 
             self.indent_level += 2
             for item in node.children:
-                self._node(item)
-            self.indent_level -= 2
+                # pre-scan to compute max digits
+                if is_ordered:
+                    counter_state["counter"] += 1
+                    counter_state["max_digits"] = max(
+                        counter_state["max_digits"],
+                        len(str(counter_state["counter"]))
+                    )
 
+            # reset counter for actual render
+            counter_state["counter"] = 0
+
+            for item in node.children:
+                self._node(item)
+
+            self.indent_level -= 2
             self.list_stack.pop()
-            self.list_counters.pop()
+
 
         elif t == "Link":
             text = self._capture_text(node)
@@ -525,12 +551,15 @@ class AstPrinter:
             self._write_text(node.dest)
 
         elif t == "ListItem":
-            is_ordered = self.list_stack[-1] if self.list_stack else False
+            state = self.list_stack[-1] if self.list_stack else None
 
-            if is_ordered:
-                # increment current level counter
-                self.list_counters[-1] += 1
-                bullet = f"{self.list_counters[-1]}. "
+            if state and state["ordered"]:
+                state["counter"] += 1
+                num = state["counter"]
+
+                width = state["max_digits"]
+
+                bullet = f"{str(num).rjust(width)}. "
             else:
                 bullet = "- "
 
