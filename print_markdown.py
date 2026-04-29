@@ -139,8 +139,10 @@ class AstPrinter:
         self.p = printer
         self.bold = False
         self.italic = False
+        
         self.indent_level = 0
         self.list_stack = []
+        self.list_counters = []
 
     # ---------------------------
     # Streaming text writer
@@ -497,9 +499,14 @@ class AstPrinter:
             self.p.hr()
 
         elif t == "List":
-            # Marko provides correct list type here
             is_ordered = getattr(node, "ordered", False)
+
             self.list_stack.append(is_ordered)
+
+            if is_ordered:
+                self.list_counters.append(0)   # start numbering for this level
+            else:
+                self.list_counters.append(None)
 
             self.indent_level += 2
             for item in node.children:
@@ -507,6 +514,7 @@ class AstPrinter:
             self.indent_level -= 2
 
             self.list_stack.pop()
+            self.list_counters.pop()
 
         elif t == "Link":
             text = self._capture_text(node)
@@ -517,12 +525,12 @@ class AstPrinter:
             self._write_text(node.dest)
 
         elif t == "ListItem":
-            # Determine list type from current list context
             is_ordered = self.list_stack[-1] if self.list_stack else False
 
             if is_ordered:
-                # Marko does not reliably provide per-item numbering
-                bullet = "1. "
+                # increment current level counter
+                self.list_counters[-1] += 1
+                bullet = f"{self.list_counters[-1]}. "
             else:
                 bullet = "- "
 
@@ -546,7 +554,6 @@ class AstPrinter:
                     first_block = False
 
                 elif ct == "List":
-                    # Nested list: ensure clean separation
                     self.p.newline()
                     self._node(child)
                     first_block = False
@@ -554,7 +561,7 @@ class AstPrinter:
                 else:
                     self.p.write(prefix if first_block else continuation)
                     self._node(child)
-                    first_block = False  
+                    first_block = False
 
 
 
