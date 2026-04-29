@@ -139,6 +139,7 @@ class AstPrinter:
         self.p = printer
         self.bold = False
         self.italic = False
+        self.indent_level = 0
 
     # ---------------------------
     # Streaming text writer
@@ -254,13 +255,9 @@ class AstPrinter:
         length = 0
 
         for text, b, i in segments:
-            words = text.split(" ")
+            parts = re.findall(r'\S+|\s+', text)
 
-            for w_idx, word in enumerate(words):
-                part = word
-                if w_idx < len(words) - 1:
-                    part += " "
-
+            for part in parts:
                 if length + len(part) > width and current:
                     lines.append(current)
                     current = []
@@ -273,6 +270,27 @@ class AstPrinter:
             lines.append(current)
 
         return lines or [[]]
+
+
+    # ---------------------------
+    # Correct Alignment
+    # ---------------------------
+    def _render_wrapped_block(self, segments, prefix, continuation):
+        width = PRINTER_CHAR_WIDTH - len(prefix)
+
+        wrapped = self._wrap_segments(segments, width)
+
+        for i, line in enumerate(wrapped):
+            if i == 0:
+                self.p.write(prefix)
+            else:
+                self.p.write(continuation)
+
+            for txt, b, it in line:
+                self.p.set_style(b, it)
+                self.p.write(txt)
+
+            self.p.newline()
 
     # ---------------------------
     # Render a segment line with alignment
@@ -339,16 +357,17 @@ class AstPrinter:
 
         # --- Blocks ---
         elif t == "Paragraph":
-            
+
             import re
             from print_image import print_image_cmd
             import printer_utils
 
             pattern = re.compile(r'\[print_image:([^\]]+)\]')
+            indent_prefix = " " * self.indent_level
+            first_line = True
 
             for child in node.children:
 
-                # Only process RawText nodes for image commands
                 if child.__class__.__name__ == "RawText":
                     text = child.children
                     pos = 0
@@ -358,7 +377,16 @@ class AstPrinter:
 
                         # ---- TEXT BEFORE IMAGE ----
                         if start > pos:
-                            self._write_text(text[pos:start])
+                            segment = text[pos:start]
+
+                            if segment:
+                                if first_line:
+                                    self.p.write(indent_prefix)
+                                    first_line = False
+                                else:
+                                    self.p.write(indent_prefix)
+
+                                self._write_text(segment)
 
                         # ---- IMAGE ----
                         content = match.group(1).strip()
@@ -366,26 +394,40 @@ class AstPrinter:
 
                         self.p.newline(1)
                         printer_utils.reset_formatting(self.p.printer)
-                        
+
                         print_image_cmd(
                             img_paths,
                             printer=self.p.printer,
                             **kwargs
                         )
-                        
+
                         printer_utils.reset_formatting(self.p.printer)
-                        self.p.printer._raw(b'\x1b\x40')  # ESC @ full reset
+                        self.p.printer._raw(b'\x1b\x40')
                         self.p.printer.text("\n")
                         self.p.newline(2)
 
+                        first_line = True  # reset after block
                         pos = end
 
                     # ---- REMAINING TEXT ----
                     if pos < len(text):
-                        self._write_text(text[pos:])
+                        tail = text[pos:]
+                        if tail:
+                            if first_line:
+                                self.p.write(indent_prefix)
+                                first_line = False
+                            else:
+                                self.p.write(indent_prefix)
+
+                            self._write_text(tail)
 
                 else:
-                    # Preserve full AST behavior for non-text nodes
+                    if first_line:
+                        self.p.write(indent_prefix)
+                        first_line = False
+                    else:
+                        self.p.write(indent_prefix)
+
                     self._node(child)
 
             self.p.newline()
@@ -454,8 +496,12 @@ class AstPrinter:
             self.p.hr()
 
         elif t == "List":
+            self.indent_level += 2
+
             for item in node.children:
                 self._node(item)
+
+            self.indent_level -= 2
 
         elif t == "Link":
             text = self._capture_text(node)
@@ -466,19 +512,47 @@ class AstPrinter:
             self._write_text(node.dest)
 
         elif t == "ListItem":
-            bullet = "• "
-            indent = len(bullet)
+            parent = getattr(node, "parent", None)
+            is_ordered = getattr(parent, "ordered", False)
 
-            segments = self._collect_segments(node)
-            wrapped = self._wrap_segments(segments, PRINTER_CHAR_WIDTH - indent)
+            if is_ordered:
+                # NOTE: Marko does not always expose index cleanly
+                bullet = "1. "
+            else:
+                bullet = "- "
 
-            for i, line in enumerate(wrapped):
-                prefix = bullet if i == 0 else " " * indent
-                self.p.write(prefix)
-                self._render_segment_line(line, PRINTER_CHAR_WIDTH - indent, "left")
-                self.p.newline()
+            prefix = " " * self.indent_level + bullet
+            continuation = " " * (self.indent_level + len(bullet))
 
-            self.p.newline()
+            first_block = True
+
+            for child in node.children:
+                ct = child.__class__.__name__
+
+                if ct == "Paragraph":
+                    segments = self._collect_segments(child)
+
+                    self._render_wrapped_block(
+                        segments,
+                        prefix if first_block else continuation,
+                        continuation
+                    )
+
+                    first_block = False
+
+                elif ct == "List":
+                    # Nested list: move to next line cleanly
+                    self.p.write(continuation)
+                    self.p.newline()
+
+                    self._node(child)
+                    first_block = False
+
+                else:
+                    # Fallback block
+                    self.p.write(continuation)
+                    self._node(child)
+                    first_block = False
 
         elif t in ("Table", "TableBlock"):
             self._render_marko_table(node, borders=TABLE_BORDERS)
