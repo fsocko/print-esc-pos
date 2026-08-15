@@ -10,8 +10,8 @@ PRINTER_WIDTH_PX    = printer_utils.PRINTER_WIDTH_PX
 PRINTER_DPI         = printer_utils.PRINTER_DPI
 
 # Calibration
-HORIZONTAL_SCALE_CORRECTION = 1.00
-VERTICAL_SCALE_CORRECTION = 1.012
+HORIZONTAL_SCALE_CORRECTION = 1.006
+VERTICAL_SCALE_CORRECTION = 1.001
 
 
 # ---------------------------
@@ -124,10 +124,10 @@ def core_print_image(
     # ---------------------------
     USE_RAW_MODE = raw_mode          
     FORCE_FULL_WIDTH = True          # force resize to printer width
-    CONTRAST_FACTOR = 1.5            # 1.5–2.5 typical
-    SHARPEN = False
-    THRESHOLD = 80                   # 160–200 typical
-    ENABLE_DITHER = True             # usually False for maps/text
+    CONTRAST_FACTOR = 1.8            # 1.5–2.5 typical
+    SHARPEN = True
+    THRESHOLD = 180                   # 160–200 typical
+    ENABLE_DITHER = False             # usually False for maps/text
 
     try:
         if printer is None:

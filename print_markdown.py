@@ -67,22 +67,24 @@ class EscPosPrinter:
         )
 
     def write(self, txt):
-        self.printer.text(ftfy.fix_text(txt))
+        encode_and_send_line(self.printer, txt)
 
     def newline(self, n=1):
         self.printer.text("\n" * n)
 
     def wrapped_text(self, txt, indent=0):
+      
         wrapped = textwrap.wrap(
             txt,
             width=PRINTER_CHAR_WIDTH - indent,
             break_long_words=False,
             break_on_hyphens=False
         ) or [""]
-
+    
         for i, line in enumerate(wrapped):
             prefix = " " * indent if i > 0 else ""
-            self.printer.text(ftfy.fix_text(prefix + line) + "\n")
+            encode_and_send_line(self.printer, prefix + line)
+            self.printer.text("\n")
 
     def raw_line(self, txt):
         clean = ftfy.fix_text(txt.ljust(PRINTER_CHAR_WIDTH)[:PRINTER_CHAR_WIDTH])
@@ -203,16 +205,15 @@ class AstPrinter:
         parts = []
 
         def walk(n):
-            t = n.__class__.__name__
-            if t == "RawText":
+            if n.__class__.__name__ == "RawText":
                 parts.append(n.children)
             else:
                 for c in getattr(n, "children", []):
                     walk(c)
 
         walk(node)
-        return "".join(parts).strip()
-
+        return ftfy.fix_text("".join(parts)).strip()
+    
     # ---------------------------
     # Segment extractor for inline formatting
     # ---------------------------
@@ -224,7 +225,7 @@ class AstPrinter:
             t = n.__class__.__name__
 
             if t == "RawText":
-                segments.append((n.children, b, i))
+                segments.append((ftfy.fix_text(n.children), b, i))
 
             elif t == "Strong":
                 for c in n.children:
@@ -662,10 +663,6 @@ class AstPrinter:
 
         if total_width > PRINTER_CHAR_WIDTH:
             if truncate_fallback:
-                self.p.bold(True)
-                self.p.wrapped_text("TABLE TRUNCATED")
-                self.p.bold(False)
-
                 scale = (PRINTER_CHAR_WIDTH - (col_count - 1)) / sum(col_widths)
                 col_widths = [max(5, int(w * scale)) for w in col_widths]
             else:
